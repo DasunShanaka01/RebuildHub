@@ -8,8 +8,20 @@ import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../../FirebaseConfig';
+import { db } from '../../FirebaseConfig';
 
+const CLOUDINARY_CONFIG = {
+  cloudName: 'dkp01emhb',
+  uploadPreset: 'adadadad',
+};
+
+interface MediaItem {
+  id: string;         // Firestore document ID
+  url: string;        // Cloudinary URL of the uploaded media
+  userId: string;     // ID of the user who uploaded
+  uploadedAt: Date;   // Date when the media was uploaded
+  filename: string;   // Original filename of the uploaded media
+}
 
 
 // Custom Dropdown Component
