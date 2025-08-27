@@ -1,14 +1,16 @@
-import { StyleSheet } from 'react-native';
-
-import EditScreenInfo from '@/components/EditScreenInfo';
+import { StyleSheet, TouchableOpacity } from 'react-native';
+import { auth } from '../../FirebaseConfig';
+import { router } from 'expo-router';
+import { getAuth, signOut } from 'firebase/auth';
 import { Text, View } from '@/components/Themed';
+import { useEffect } from 'react';
 
 export default function TabOneScreen() {
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Tab One</Text>
-      <View style={styles.separator} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
-      <EditScreenInfo path="app/(tabs)/index.tsx" />
+      <Text style={styles.title}>Wecome to RebuildHub</Text>
+      <Text style={styles.title}>This is the home page</Text>
     </View>
   );
 }
@@ -22,10 +24,15 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: 'bold',
+    marginBottom: 20,
   },
-  separator: {
-    marginVertical: 30,
-    height: 1,
-    width: '80%',
+  logoutButton: {
+    backgroundColor: 'red',
+    padding: 10,
+    borderRadius: 5,
+  },
+  logoutText: {
+    color: 'white',
+    fontWeight: 'bold',
   },
 });
