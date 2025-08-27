@@ -1,3 +1,4 @@
+// Remove the sync logic from DamageReportForm and simplify it
 import { router } from 'expo-router';
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Image, Alert, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList } from 'react-native';
@@ -10,6 +11,7 @@ import { collection, addDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, db } from '../../FirebaseConfig';
 import BackButton from '../../components/BackButton';
+import { useSyncService } from '../contexts/SyncProvider'; // Correct path from reportSubmit/report.tsx
 
 const CLOUDINARY_CONFIG = {
   cloudName: 'dkp01emhb',
@@ -78,6 +80,7 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({ items, selectedValue, o
 export default function DamageReportForm() {
   const navigation = useNavigation();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { pendingReports, manualSync, refreshPendingCount } = useSyncService();
   const [user, setUser] = useState<User | null>(null);
   const [description, setDescription] = useState('');
   const [image, setImage] = useState<string | null>(null);
@@ -101,47 +104,6 @@ export default function DamageReportForm() {
     { label: 'High', value: 'high' },
   ];
 
-  // Auto-sync offline reports
-  const syncOfflineReports = async () => {
-    try {
-      const keys = await AsyncStorage.getAllKeys();
-      const reportKeys = keys.filter((key) => key.startsWith('report-'));
-      const reports = await AsyncStorage.multiGet(reportKeys);
-
-      for (const [key, value] of reports) {
-        if (value) {
-          const report = JSON.parse(value);
-          const userId = report.userId;
-          let mediaItem: MediaItem | null = null;
-
-          if (report.image) {
-            if (typeof report.image === 'string') {
-              mediaItem = await uploadToCloudinary(report.image, userId);
-            } else {
-              console.warn(`Skipping invalid image data for report ${key}`);
-              continue;
-            }
-          }
-
-          await addDoc(collection(db, 'reportData'), {
-            ...report,
-            media: mediaItem ? [mediaItem] : [],
-            reportStatus: report.reportStatus || 'pending', // Ensure status is included
-          });
-
-          await AsyncStorage.removeItem(key);
-          console.log(`Synced and removed report: ${key}`);
-        }
-      }
-      if (reportKeys.length > 0) {
-        Alert.alert('Success', 'All offline reports synced to database.');
-      }
-    } catch (error: any) {
-      console.error('Sync error:', error);
-      Alert.alert('Error', 'Failed to sync offline reports: ' + error.message);
-    }
-  };
-
   useEffect(() => {
     // Monitor auth state
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
@@ -151,19 +113,9 @@ export default function DamageReportForm() {
       }
     });
 
-    // Monitor network status and sync when online
+    // Monitor network status
     const unsubscribeNet = NetInfo.addEventListener((state) => {
       setIsOffline(!state.isConnected);
-      if (state.isConnected) {
-        syncOfflineReports();
-      }
-    });
-
-    // Initial sync attempt on mount
-    NetInfo.fetch().then((state) => {
-      if (state.isConnected) {
-        syncOfflineReports();
-      }
     });
 
     return () => {
@@ -187,7 +139,7 @@ export default function DamageReportForm() {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsEditing: false,
-      allowsMultipleSelection: false, // Explicitly disable multiple selection
+      allowsMultipleSelection: false,
       quality: 1,
     });
     if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -247,14 +199,15 @@ export default function DamageReportForm() {
       severity,
       location,
       timestamp: new Date(),
-      reportStatus: 'pending', // Set initial status to pending
+      reportStatus: 'pending',
     };
 
     try {
       if (isOffline) {
         // Store report offline
         await AsyncStorage.setItem(`report-${Date.now()}`, JSON.stringify({ ...reportData, image }));
-        Alert.alert('Success', 'Report saved offline. Will sync when online.');
+        Alert.alert('Success', 'Report saved offline. Will sync automatically when online.');
+        await refreshPendingCount(); // Update pending count
       } else {
         // Upload image to Cloudinary if present
         let mediaItem: MediaItem | null = null;
@@ -297,6 +250,17 @@ export default function DamageReportForm() {
       
       <Text style={styles.title}>Damage Reporting</Text>
       <Text style={styles.userText}>User: {user?.email || `User-${id}`}</Text>
+      
+      {/* Show pending reports status */}
+      {pendingReports > 0 && (
+        <View style={styles.pendingReportsContainer}>
+          <Text style={styles.pendingReportsText}>
+            {pendingReports} report(s) pending sync
+          </Text>
+          <Button title="Sync Now" onPress={manualSync} color="#FF9800" />
+        </View>
+      )}
+      
       <TextInput
         style={[styles.input, { height: 80 }]}
         value={description}
@@ -332,7 +296,10 @@ export default function DamageReportForm() {
         <Button title="Submit" onPress={handleSubmit} />
         <Button title="Cancel" color="red" onPress={handleCancel} />
       </View>
-      <Text style={styles.statusText}>Status: {isOffline ? 'Offline' : 'Online'}</Text>
+      <Text style={styles.statusText}>
+        Status: {isOffline ? 'Offline' : 'Online'}
+        {pendingReports > 0 && ` • ${pendingReports} pending`}
+      </Text>
     </KeyboardAvoidingView>
   );
 }
@@ -355,6 +322,23 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: 'center',
     color: '#333',
+  },
+  pendingReportsContainer: {
+    backgroundColor: '#FFF3E0',
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9800',
+  },
+  pendingReportsText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#E65100',
+    fontWeight: '500',
   },
   input: {
     borderWidth: 1,
