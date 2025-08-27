@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from '../../FirebaseConfig';
+import { getAuth } from 'firebase/auth';
 
 const CLOUDINARY_CONFIG = {
   cloudName: 'dkp01emhb',
@@ -86,6 +87,9 @@ export default function DamageReportForm() {
   const [category, setCategory] = useState<string | null>(null);
   const [severity, setSeverity] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
+  const auth = getAuth();
+  const user = auth.currentUser;
+  const userId = user ? user.uid : 'anonymous';
 
   const categories = [
     { label: 'Earthquakes', value: 'earthquakes' },

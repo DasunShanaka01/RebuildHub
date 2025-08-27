@@ -4,11 +4,9 @@ import { Link } from 'expo-router';
 export default function TabOneScreen() {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Welcome to RebuildHub</Text>
-      <Text style={styles.subtitle}>This is the home page</Text>
-
+      <Text style={styles.title}>Home</Text>
       <Link
-        href={{ pathname: '/reportSubmit/[id]', params: { id: '1' } }}
+        href='/reportSubmit/report'
         style={styles.button}
       >
         <Text style={styles.buttonText}>Go to Report</Text>
@@ -22,19 +20,10 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
-    backgroundColor: '#f9f9f9',
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#222',
-  },
-  subtitle: {
-    fontSize: 16,
-    marginBottom: 20,
-    color: '#555',
   },
   button: {
     backgroundColor: '#2196F3',
