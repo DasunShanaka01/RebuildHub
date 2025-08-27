@@ -11,8 +11,7 @@ import { collection, addDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, db } from '../../FirebaseConfig';
 import BackButton from '../../components/BackButton';
-import { useSyncService } from '../contexts/SyncProvider'; // Correct path from reportSubmit/report.tsx
-
+import { useSyncService } from '../contexts/SyncProvider'; 
 const CLOUDINARY_CONFIG = {
   cloudName: 'dkp01emhb',
   uploadPreset: 'adadadad', 
