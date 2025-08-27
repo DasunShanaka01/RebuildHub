@@ -32,6 +32,9 @@ const ProfileScreen: React.FC = () => {
         <Text style={styles.email}>Signed in as: {user.email}</Text>
       )}
       <Button title="Logout" onPress={handleLogout} color="red" />
+
+      <Button title="Go to Report" onPress={() => router.replace('/reportSubmit/reportProfile')} />
+
     </View>
   );
 };

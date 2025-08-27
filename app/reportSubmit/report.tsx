@@ -1,32 +1,29 @@
-
+import { router } from 'expo-router';
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Image, Alert, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useNavigation } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { collection, addDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db } from '../../FirebaseConfig';
-import { getAuth } from 'firebase/auth';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { auth, db } from '../../FirebaseConfig';
+import BackButton from '../../components/BackButton';
 
 const CLOUDINARY_CONFIG = {
   cloudName: 'dkp01emhb',
-  uploadPreset: 'adadadad',
+  uploadPreset: 'adadadad', // Replace with your actual Cloudinary upload preset
 };
 
-
 interface MediaItem {
-  id: string;         // Firestore document ID
-  url: string;        // Cloudinary URL of the uploaded media
-  userId: string;     // ID of the user who uploaded
-  uploadedAt: Date;   // Date when the media was uploaded
-  filename: string;   // Original filename of the uploaded media
+  id: string;
+  url: string;
+  userId: string;
+  uploadedAt: Date;
+  filename: string;
 }
 
-
-// Custom Dropdown Component
 type DropdownItem = { label: string; value: string };
 type CustomDropdownProps = {
   items: DropdownItem[];
@@ -79,17 +76,15 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({ items, selectedValue, o
 };
 
 export default function DamageReportForm() {
-  const { id } = useLocalSearchParams();
-  const [userName, setUserName] = useState('');
+  const navigation = useNavigation();
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [user, setUser] = useState<User | null>(null);
   const [description, setDescription] = useState('');
   const [image, setImage] = useState<string | null>(null);
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [severity, setSeverity] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
-  const auth = getAuth();
-  const user = auth.currentUser;
-  const userId = user ? user.uid : 'anonymous';
 
   const categories = [
     { label: 'Earthquakes', value: 'earthquakes' },
@@ -106,13 +101,75 @@ export default function DamageReportForm() {
     { label: 'High', value: 'high' },
   ];
 
+  // Auto-sync offline reports
+  const syncOfflineReports = async () => {
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const reportKeys = keys.filter((key) => key.startsWith('report-'));
+      const reports = await AsyncStorage.multiGet(reportKeys);
+
+      for (const [key, value] of reports) {
+        if (value) {
+          const report = JSON.parse(value);
+          const userId = report.userId;
+          let mediaItem: MediaItem | null = null;
+
+          if (report.image) {
+            if (typeof report.image === 'string') {
+              mediaItem = await uploadToCloudinary(report.image, userId);
+            } else {
+              console.warn(`Skipping invalid image data for report ${key}`);
+              continue;
+            }
+          }
+
+          await addDoc(collection(db, 'reportData'), {
+            ...report,
+            media: mediaItem ? [mediaItem] : [],
+            reportStatus: report.reportStatus || 'pending', // Ensure status is included
+          });
+
+          await AsyncStorage.removeItem(key);
+          console.log(`Synced and removed report: ${key}`);
+        }
+      }
+      if (reportKeys.length > 0) {
+        Alert.alert('Success', 'All offline reports synced to database.');
+      }
+    } catch (error: any) {
+      console.error('Sync error:', error);
+      Alert.alert('Error', 'Failed to sync offline reports: ' + error.message);
+    }
+  };
+
   useEffect(() => {
-    setUserName(`User-${id}`);
-    // Monitor network status
-    const unsubscribe = NetInfo.addEventListener((state) => {
-      setIsOffline(!state.isConnected);
+    // Monitor auth state
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser && id) {
+        setUser({ uid: id } as User); // Fallback to id if no user is logged in
+      }
     });
-    return () => unsubscribe();
+
+    // Monitor network status and sync when online
+    const unsubscribeNet = NetInfo.addEventListener((state) => {
+      setIsOffline(!state.isConnected);
+      if (state.isConnected) {
+        syncOfflineReports();
+      }
+    });
+
+    // Initial sync attempt on mount
+    NetInfo.fetch().then((state) => {
+      if (state.isConnected) {
+        syncOfflineReports();
+      }
+    });
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeNet();
+    };
   }, [id]);
 
   const getLocation = async () => {
@@ -129,12 +186,46 @@ export default function DamageReportForm() {
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
-      allowsEditing: true,
-      quality: 0.8,
+      allowsEditing: false,
+      allowsMultipleSelection: false, // Explicitly disable multiple selection
+      quality: 1,
     });
-    if (!result.canceled) {
+    if (!result.canceled && result.assets && result.assets.length > 0) {
       setImage(result.assets[0].uri);
     }
+  };
+
+  const uploadToCloudinary = async (uri: string, userId: string): Promise<MediaItem> => {
+    const isVideo = uri.match(/\.(mp4|mov)$/i);
+    const endpoint = isVideo
+      ? `https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/video/upload`
+      : `https://api.cloudinary.com/v1_1/${CLOUDINARY_CONFIG.cloudName}/image/upload`;
+    const formData = new FormData();
+    formData.append('file', {
+      uri,
+      type: isVideo ? 'video/mp4' : 'image/jpeg',
+      name: `report-${Date.now()}.${isVideo ? 'mp4' : 'jpg'}`,
+    } as any);
+    formData.append('upload_preset', CLOUDINARY_CONFIG.uploadPreset);
+    formData.append('cloud_name', CLOUDINARY_CONFIG.cloudName);
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Cloudinary upload failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return {
+      id: data.asset_id,
+      url: data.secure_url,
+      userId,
+      uploadedAt: new Date(),
+      filename: data.original_filename || `report-${Date.now()}.${isVideo ? 'mp4' : 'jpg'}`,
+    };
   };
 
   const handleSubmit = async () => {
@@ -143,38 +234,40 @@ export default function DamageReportForm() {
       return;
     }
 
+    if (!user && !id) {
+      Alert.alert('Error', 'User not authenticated');
+      return;
+    }
+
+    const userId = user?.uid || id;
     const reportData = {
-      userName,
+      userId,
       description,
       category,
       severity,
       location,
-      image,
       timestamp: new Date(),
+      reportStatus: 'pending', // Set initial status to pending
     };
 
     try {
       if (isOffline) {
         // Store report offline
-        await AsyncStorage.setItem(`report-${Date.now()}`, JSON.stringify(reportData));
+        await AsyncStorage.setItem(`report-${Date.now()}`, JSON.stringify({ ...reportData, image }));
         Alert.alert('Success', 'Report saved offline. Will sync when online.');
       } else {
-        // Upload image to Firebase Storage if present
-        // let imageURL = null;
-        // if (image) {
-        //   const response = await fetch(image);
-        //   const blob = await response.blob();
-        //   const imageRef = ref(storage, `reports/${id}/${Date.now()}`);
-        //   await uploadBytes(imageRef, blob);
-        //   imageURL = await getDownloadURL(imageRef);
-        // }
+        // Upload image to Cloudinary if present
+        let mediaItem: MediaItem | null = null;
+        if (image && typeof image === 'string') {
+          mediaItem = await uploadToCloudinary(image, userId);
+        }
 
         // Save report to Firestore
-        // await addDoc(collection(db, 'reportData'), {
-        //   ...reportData,
-        //   imageURL,
-        // });
-        // Alert.alert('Success', 'Damage Report Submitted');
+        await addDoc(collection(db, 'reportData'), {
+          ...reportData,
+          media: mediaItem ? [mediaItem] : [],
+        });
+        Alert.alert('Success', 'Damage Report Submitted');
       }
 
       // Reset form
@@ -189,23 +282,21 @@ export default function DamageReportForm() {
   };
 
   const handleCancel = () => {
-    setUserName(`User-${id}`);
     setDescription('');
     setImage(null);
     setLocation(null);
     setCategory(null);
     setSeverity(null);
+    router.replace('/(tabs)');
   };
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
+      
+      <BackButton />
+      
       <Text style={styles.title}>Damage Reporting</Text>
-      <TextInput
-        style={styles.input}
-        value={userName}
-        onChangeText={setUserName}
-        placeholder="Enter your name"
-      />
+      <Text style={styles.userText}>User: {user?.email || `User-${id}`}</Text>
       <TextInput
         style={[styles.input, { height: 80 }]}
         value={description}
@@ -258,6 +349,12 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     textAlign: 'center',
     color: '#1A237E',
+  },
+  userText: {
+    fontSize: 16,
+    marginBottom: 16,
+    textAlign: 'center',
+    color: '#333',
   },
   input: {
     borderWidth: 1,
