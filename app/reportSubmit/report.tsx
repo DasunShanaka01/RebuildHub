@@ -13,7 +13,7 @@ import BackButton from '../../components/BackButton';
 
 const CLOUDINARY_CONFIG = {
   cloudName: 'dkp01emhb',
-  uploadPreset: 'adadadad', // Replace with your actual Cloudinary upload preset
+  uploadPreset: 'adadadad', 
 };
 
 interface MediaItem {
