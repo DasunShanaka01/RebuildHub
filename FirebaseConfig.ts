@@ -22,4 +22,4 @@ export const app = initializeApp(firebaseConfig);
 //Auth with persistence (user stays logged in until logout)
 export const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(ReactNativeAsyncStorage)});
-//export const db = getFirestore(app);
+export const db = getFirestore(app);

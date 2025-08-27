@@ -15,6 +15,7 @@ const CLOUDINARY_CONFIG = {
   uploadPreset: 'adadadad',
 };
 
+
 interface MediaItem {
   id: string;         // Firestore document ID
   url: string;        // Cloudinary URL of the uploaded media
@@ -155,21 +156,21 @@ export default function DamageReportForm() {
         Alert.alert('Success', 'Report saved offline. Will sync when online.');
       } else {
         // Upload image to Firebase Storage if present
-        let imageURL = null;
-        if (image) {
-          const response = await fetch(image);
-          const blob = await response.blob();
-          const imageRef = ref(storage, `reports/${id}/${Date.now()}`);
-          await uploadBytes(imageRef, blob);
-          imageURL = await getDownloadURL(imageRef);
-        }
+        // let imageURL = null;
+        // if (image) {
+        //   const response = await fetch(image);
+        //   const blob = await response.blob();
+        //   const imageRef = ref(storage, `reports/${id}/${Date.now()}`);
+        //   await uploadBytes(imageRef, blob);
+        //   imageURL = await getDownloadURL(imageRef);
+        // }
 
         // Save report to Firestore
-        await addDoc(collection(db, 'reportData'), {
-          ...reportData,
-          imageURL,
-        });
-        Alert.alert('Success', 'Damage Report Submitted');
+        // await addDoc(collection(db, 'reportData'), {
+        //   ...reportData,
+        //   imageURL,
+        // });
+        // Alert.alert('Success', 'Damage Report Submitted');
       }
 
       // Reset form
