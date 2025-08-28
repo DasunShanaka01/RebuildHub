@@ -12,10 +12,24 @@ import {
   KeyboardAvoidingView,
   Platform,
   PermissionsAndroid,
+  FlatList,
+  ActivityIndicator,
 } from 'react-native';
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Picker } from '@react-native-picker/picker';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  collection,
+  addDoc,
+  serverTimestamp,
+  query,
+  where,
+  onSnapshot,
+  /* orderBy, */
+  doc,
+  updateDoc,
+} from 'firebase/firestore';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '@/FirebaseConfig';
 
 interface AidRequestForm {
@@ -33,6 +47,13 @@ interface AidRequestForm {
   };
   urgencyLevel: 'Low' | 'Medium' | 'High';
   additionalNotes: string;
+}
+
+interface AidRequest extends AidRequestForm {
+  id: string;
+  status: 'Requested' | 'Cancelled' | 'In Progress' | 'Completed';
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 export default function AidScreen() {
@@ -56,9 +77,53 @@ export default function AidScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [locationPermission, setLocationPermission] = useState<boolean>(false);
 
+  const [userIdentifier, setUserIdentifier] = useState<string>('');
+  const [requests, setRequests] = useState<AidRequest[]>([]);
+  const [isLoadingRequests, setIsLoadingRequests] = useState<boolean>(false);
+  const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
+
   useEffect(() => {
     checkLocationPermission();
+    restoreIdentifierAndSubscribe();
   }, []);
+
+  const restoreIdentifierAndSubscribe = async () => {
+    try {
+      const saved = await AsyncStorage.getItem('aid_user_identifier');
+      if (saved) {
+        setUserIdentifier(saved);
+        subscribeToRequests(saved);
+      }
+    } catch (e) {
+      // noop
+    }
+  };
+
+  const subscribeToRequests = (identifierValue: string) => {
+    if (!identifierValue) return;
+    setIsLoadingRequests(true);
+    const q = query(
+      collection(db, 'aid_requests'),
+      where('identifier', '==', identifierValue)
+      // Removed orderBy('createdAt', 'desc') to avoid needing a composite index
+    );
+    return onSnapshot(q, (snapshot) => {
+      const list: AidRequest[] = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AidRequest, 'id'>) }));
+      // Exclude cancelled requests
+      const visible = list.filter((r) => r.status !== 'Cancelled');
+      // Sort client-side by createdAt descending if present
+      visible.sort((a, b) => {
+        const aTs = a.createdAt?.seconds ?? 0;
+        const bTs = b.createdAt?.seconds ?? 0;
+        return bTs - aTs;
+      });
+      setRequests(visible);
+      setIsLoadingRequests(false);
+    }, (err) => {
+      console.error('subscribeToRequests error', err);
+      setIsLoadingRequests(false);
+    });
+  };
 
   const checkLocationPermission = async () => {
     try {
@@ -109,6 +174,26 @@ export default function AidScreen() {
     }));
   };
 
+  const resetForm = () => {
+    setFormData({
+      fullName: '',
+      identifier: '',
+      householdSize: '',
+      address: '',
+      gpsLocation: '',
+      aidTypes: {
+        food: false,
+        water: false,
+        medicine: false,
+        shelter: false,
+        other: '',
+      },
+      urgencyLevel: 'Medium',
+      additionalNotes: '',
+    });
+    setEditingRequestId(null);
+  };
+
   const handleSubmit = async () => {
     if (!formData.fullName || !formData.identifier || !formData.address) {
       Alert.alert('Error', 'Please fill in all required fields (Name, ID/Phone, and Address)');
@@ -117,44 +202,32 @@ export default function AidScreen() {
 
     setIsSubmitting(true);
     try {
-      const docRef = await addDoc(collection(db, 'aid_requests'), {
-        ...formData,
-        status: 'Requested',
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      if (editingRequestId) {
+        await updateDoc(doc(db, 'aid_requests', editingRequestId), {
+          ...formData,
+          updatedAt: serverTimestamp(),
+        });
+        Alert.alert('Updated', 'Your request has been updated.');
+      } else {
+        const docRef = await addDoc(collection(db, 'aid_requests'), {
+          ...formData,
+          status: 'Requested',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        await AsyncStorage.setItem('aid_user_identifier', formData.identifier);
+        setUserIdentifier(formData.identifier);
+        Alert.alert(
+          'Success!',
+          `Your request has been submitted. Track with Request ID: ${docRef.id}`,
+        );
+      }
 
-      Alert.alert(
-        'Success!',
-        `Your request has been submitted. Track with Request ID: ${docRef.id}`,
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              setShowForm(false);
-              setFormData({
-                fullName: '',
-                identifier: '',
-                householdSize: '',
-                address: '',
-                gpsLocation: '',
-                aidTypes: {
-                  food: false,
-                  water: false,
-                  medicine: false,
-                  shelter: false,
-                  other: '',
-                },
-                urgencyLevel: 'Medium',
-                additionalNotes: '',
-              });
-            }
-          }
-        ]
-      );
+      setShowForm(false);
+      resetForm();
     } catch (error) {
       Alert.alert('Error', 'Failed to submit request. Please try again.');
-      console.error('Error submitting aid request:', error);
+      console.error('Error submitting/updating aid request:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -167,6 +240,72 @@ export default function AidScreen() {
       case 'High': return '#F44336';
       default: return '#FF9800';
     }
+  };
+
+  const onPressEdit = (request: AidRequest) => {
+    setEditingRequestId(request.id);
+    setFormData({
+      fullName: request.fullName,
+      identifier: request.identifier,
+      householdSize: request.householdSize,
+      address: request.address,
+      gpsLocation: request.gpsLocation,
+      aidTypes: { ...request.aidTypes },
+      urgencyLevel: request.urgencyLevel,
+      additionalNotes: request.additionalNotes,
+    });
+    setShowForm(true);
+  };
+
+  const onPressCancel = async (request: AidRequest) => {
+    Alert.alert(
+      'Cancel Request',
+      'Are you sure you want to cancel this aid request?',
+      [
+        { text: 'No', style: 'cancel' },
+        { text: 'Yes, Cancel', style: 'destructive', onPress: async () => {
+          try {
+            await updateDoc(doc(db, 'aid_requests', request.id), {
+              status: 'Cancelled',
+              updatedAt: serverTimestamp(),
+            });
+          } catch (e) {
+            Alert.alert('Error', 'Failed to cancel request.');
+          }
+        }},
+      ]
+    );
+  };
+
+  const renderRequestItem = ({ item }: { item: AidRequest }) => {
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.cardTitle}>{item.fullName}</Text>
+          <View style={styles.cardActions}>
+            <TouchableOpacity onPress={() => onPressEdit(item)} style={styles.iconButton}>
+              <FontAwesome name="pencil" size={18} color="#333" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => onPressCancel(item)} style={styles.iconButton}>
+              <FontAwesome name="ban" size={18} color="#c62828" />
+            </TouchableOpacity>
+          </View>
+        </View>
+        <Text style={styles.cardSub}>{item.address}</Text>
+        <View style={styles.badgesRow}>
+          <View style={[styles.badge, { backgroundColor: getUrgencyColor(item.urgencyLevel) }]}>
+            <Text style={styles.badgeText}>{item.urgencyLevel}</Text>
+          </View>
+          <View style={[styles.badge, styles.statusBadge]}>
+            <Text style={styles.badgeText}>{item.status}</Text>
+          </View>
+        </View>
+        <Text style={styles.cardMeta}>ID: {item.identifier} • GPS: {item.gpsLocation || 'N/A'}</Text>
+        <Text style={styles.cardMeta}>Needs: {['food','water','medicine','shelter']
+          .filter((k) => (item.aidTypes as any)[k])
+          .join(', ') || 'None'} {item.aidTypes.other ? `, Other: ${item.aidTypes.other}` : ''}</Text>
+      </View>
+    );
   };
 
   return (
@@ -192,9 +331,9 @@ export default function AidScreen() {
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           >
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Aid Request Form</Text>
+              <Text style={styles.modalTitle}>{editingRequestId ? 'Edit Aid Request' : 'Aid Request Form'}</Text>
               <TouchableOpacity
-                onPress={() => setShowForm(false)}
+                onPress={() => { setShowForm(false); resetForm(); }}
                 style={styles.closeButton}
               >
                 <Text style={styles.closeButtonText}>✕</Text>
@@ -328,12 +467,33 @@ export default function AidScreen() {
                 disabled={isSubmitting}
               >
                 <Text style={styles.submitButtonText}>
-                  {isSubmitting ? 'Submitting...' : 'Submit Request'}
+                  {isSubmitting ? (editingRequestId ? 'Updating...' : 'Submitting...') : (editingRequestId ? 'Update Request' : 'Submit Request')}
                 </Text>
               </TouchableOpacity>
             </ScrollView>
           </KeyboardAvoidingView>
         </Modal>
+      )}
+
+      {/* Requests List */}
+      <View style={styles.listHeaderRow}>
+        <Text style={styles.sectionTitle}>Your Requests</Text>
+        {userIdentifier ? (
+          <Text style={styles.smallNote}>for ID: {userIdentifier}</Text>
+        ) : (
+          <Text style={styles.smallNote}>Submit once to save your ID</Text>
+        )}
+      </View>
+      {isLoadingRequests ? (
+        <ActivityIndicator size="small" color="#2196F3" />
+      ) : (
+        <FlatList
+          data={requests}
+          keyExtractor={(item) => item.id}
+          renderItem={renderRequestItem}
+          ListEmptyComponent={<Text style={styles.emptyText}>No requests yet.</Text>}
+          contentContainerStyle={requests.length === 0 ? { flexGrow: 1, justifyContent: 'center', alignItems: 'center' } : undefined}
+        />
       )}
     </View>
   );
@@ -343,7 +503,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingHorizontal: 20,
     backgroundColor: '#f5f5f5',
   },
@@ -357,22 +517,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
-    marginBottom: 30,
+    marginBottom: 16,
   },
   requestButton: {
     backgroundColor: '#2196F3',
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 25,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   requestButtonText: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   modalContainer: {
@@ -405,20 +561,20 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   section: {
-    marginBottom: 25,
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 15,
+    marginBottom: 12,
     color: '#333',
   },
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
     borderRadius: 8,
-    padding: 12,
-    marginBottom: 15,
+    padding: 10,
+    marginBottom: 12,
     fontSize: 16,
     backgroundColor: '#fff',
   },
@@ -429,7 +585,7 @@ const styles = StyleSheet.create({
   gpsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   gpsInput: {
     flex: 1,
@@ -438,7 +594,7 @@ const styles = StyleSheet.create({
   },
   gpsButton: {
     backgroundColor: '#4CAF50',
-    padding: 12,
+    padding: 10,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
@@ -450,7 +606,7 @@ const styles = StyleSheet.create({
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 10,
   },
   checkboxLabel: {
     marginLeft: 10,
@@ -467,28 +623,100 @@ const styles = StyleSheet.create({
   },
   picker: {
     flex: 1,
-    height: 50,
+    height: 44,
   },
   urgencyIndicator: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    marginRight: 15,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    marginRight: 12,
   },
   submitButton: {
     backgroundColor: '#4CAF50',
-    paddingVertical: 15,
+    paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 30,
+    marginTop: 8,
+    marginBottom: 24,
   },
   submitButtonDisabled: {
     backgroundColor: '#ccc',
   },
   submitButtonText: {
     color: '#fff',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
+  },
+  listHeaderRow: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  smallNote: {
+    color: '#666',
+    fontSize: 12,
+  },
+  emptyText: {
+    color: '#666',
+    marginTop: 16,
+  },
+  card: {
+    width: '100%',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+    borderColor: '#eee',
+    borderWidth: 1,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconButton: {
+    padding: 6,
+    marginLeft: 6,
+  },
+  cardSub: {
+    color: '#555',
+    marginBottom: 6,
+  },
+  cardMeta: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  badgesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  badge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 6,
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  statusBadge: {
+    backgroundColor: '#FF9800', // Default to Medium color
   },
 });
