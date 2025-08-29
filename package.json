@@ -40,7 +40,6 @@
     "expo-task-manager": "~13.1.6",
     "expo-background-fetch": "~13.1.6",
     "react-native-maps": "1.20.1"
-
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
