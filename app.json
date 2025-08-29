@@ -13,15 +13,18 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-    "ios": {
-      "supportsTablet": true
-    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBuKrghtMt7e6xdr3TLiGhVZNuqTFTgMXk"
+        }
+      },
+      "package": "com.anonymous.RebuildHub"
     },
     "web": {
       "bundler": "metro",
@@ -33,6 +36,7 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "entryPoint": "./node_modules/expo-router/entry"
   }
 }
