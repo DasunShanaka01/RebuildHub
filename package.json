@@ -14,13 +14,9 @@
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",
-<<<<<<< HEAD
     "@react-native-async-storage/async-storage": "^1.24.0",
     "@react-native-community/netinfo": "^11.4.1",
-=======
-    "@react-native-async-storage/async-storage": "2.1.2",
     "@react-native-picker/picker": "^2.11.1",
->>>>>>> aid
     "@react-navigation/native": "^7.1.6",
     "expo": "~53.0.22",
     "expo-font": "~13.3.2",
@@ -35,13 +31,9 @@
     "firebase": "^12.1.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-<<<<<<< HEAD
     "react-native": "^0.79.6",
     "react-native-background-timer": "^2.4.1",
     "react-native-dropdown-picker": "^5.4.6",
-=======
-    "react-native": "0.79.5",
->>>>>>> aid
     "react-native-reanimated": "~3.17.4",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
