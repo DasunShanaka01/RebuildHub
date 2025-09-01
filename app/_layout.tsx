@@ -5,7 +5,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
-import { SyncProvider } from './contexts/SyncProvider'; // Correct path to contexts folder
+import { SyncProvider } from './contexts/SyncProvider'; 
 
 import { useColorScheme } from '@/components/useColorScheme';
 
