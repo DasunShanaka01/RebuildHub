@@ -165,10 +165,7 @@ export default function Index() {
         <Text style={styles.permissionText}>Requesting location permission...</Text>
       )}
 
-      <Link
-        href={{ pathname: "/reportSubmit/[id]", params: { id: "1" } }}
-        style={styles.button}
-      >
+      <Link href="/reportSubmit/report" style={styles.button}>
         <Text style={styles.buttonText}>Go to Report</Text>
       </Link>
     </View>
