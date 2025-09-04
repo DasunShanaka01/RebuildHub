@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -30,6 +30,7 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import * as Location from 'expo-location';
+import MapView, { Marker } from 'react-native-maps';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '@/FirebaseConfig';
 
@@ -84,6 +85,9 @@ export default function AidScreen() {
   const [isLoadingRequests, setIsLoadingRequests] = useState<boolean>(false);
   const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
   const [unsubscribeRequests, setUnsubscribeRequests] = useState<(() => void) | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<AidRequest | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const mapRef = useRef<MapView | null>(null);
 
   useEffect(() => {
     checkLocationPermission();
@@ -172,7 +176,19 @@ export default function AidScreen() {
       const gpsString = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
       setFormData(prev => ({ ...prev, gpsLocation: gpsString }));
 
-      Alert.alert('Success', `GPS Location captured: ${gpsString}`);
+      // Removed success alert to avoid popup on GPS capture
+
+      // Center the form map on the live location
+      try {
+        mapRef.current?.animateToRegion({
+          latitude,
+          longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        }, 500);
+      } catch (e) {
+        // noop
+      }
     } catch (error) {
       Alert.alert('Error', 'Failed to get current location. Please enter manually.');
       console.error('Error getting location:', error);
@@ -276,6 +292,11 @@ export default function AidScreen() {
     setShowForm(true);
   };
 
+  const onPressView = (request: AidRequest) => {
+    setSelectedRequest(request);
+    setIsDetailOpen(true);
+  };
+
   const onPressCancel = async (request: AidRequest) => {
     Alert.alert(
       'Cancel Request',
@@ -298,7 +319,7 @@ export default function AidScreen() {
 
   const renderRequestItem = ({ item }: { item: AidRequest }) => {
     return (
-      <View style={styles.card}>
+      <TouchableOpacity style={styles.card} onPress={() => onPressView(item)} activeOpacity={0.85}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>{item.fullName}</Text>
           <View style={styles.cardActions}>
@@ -323,7 +344,7 @@ export default function AidScreen() {
         <Text style={styles.cardMeta}>Needs: {['food','water','medicine','shelter']
           .filter((k) => (item.aidTypes as any)[k])
           .join(', ') || 'None'} {item.aidTypes.other ? `, Other: ${item.aidTypes.other}` : ''}</Text>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -407,6 +428,34 @@ export default function AidScreen() {
                     <Text style={styles.gpsButtonText}>📍</Text>
                   </TouchableOpacity>
                 </View>
+              {(() => {
+                const gps = formData.gpsLocation;
+                const parts = gps ? gps.split(',').map((p) => p.trim()) : [];
+                const lat = parts.length === 2 ? Number(parts[0]) : NaN;
+                const lng = parts.length === 2 ? Number(parts[1]) : NaN;
+                const hasCoords = !Number.isNaN(lat) && !Number.isNaN(lng);
+                const initialRegion = hasCoords
+                  ? { latitude: lat, longitude: lng, latitudeDelta: 0.01, longitudeDelta: 0.01 }
+                  : undefined;
+                return (
+                  <View style={{ marginTop: 8 }}>
+                    <MapView
+                      ref={mapRef}
+                      style={styles.map}
+                      initialRegion={initialRegion}
+                      onPress={(e) => {
+                        const c = e.nativeEvent.coordinate;
+                        handleInputChange('gpsLocation', `${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)}`);
+                      }}
+                    >
+                      {hasCoords && (
+                        <Marker coordinate={{ latitude: lat, longitude: lng }} />
+                      )}
+                    </MapView>
+                    <Text style={{ color: '#666', marginTop: 6, fontSize: 12 }}>Tap on the map to set location</Text>
+                  </View>
+                );
+              })()}
               </View>
 
               {/* Aid Request Type */}
@@ -494,6 +543,111 @@ export default function AidScreen() {
         </Modal>
       )}
 
+      {/* Detail Modal */}
+      <Modal
+        visible={isDetailOpen}
+        animationType="slide"
+        onRequestClose={() => setIsDetailOpen(false)}
+      >
+        <KeyboardAvoidingView style={styles.modalContainer} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Request Details</Text>
+            <TouchableOpacity onPress={() => setIsDetailOpen(false)} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
+            {selectedRequest && (
+              <View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Full Name</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.fullName}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Identifier</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.identifier}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Address</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.address}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>GPS</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.gpsLocation || 'N/A'}</Text>
+                </View>
+                {(() => {
+                  const gps = selectedRequest.gpsLocation;
+                  const parts = gps ? gps.split(',').map((p) => p.trim()) : [];
+                  const lat = parts.length === 2 ? Number(parts[0]) : NaN;
+                  const lng = parts.length === 2 ? Number(parts[1]) : NaN;
+                  const valid = !Number.isNaN(lat) && !Number.isNaN(lng);
+                  if (!valid) return null;
+                  return (
+                    <View style={{ marginBottom: 16 }}>
+                      <MapView
+                        style={styles.map}
+                        initialRegion={{
+                          latitude: lat,
+                          longitude: lng,
+                          latitudeDelta: 0.01,
+                          longitudeDelta: 0.01,
+                        }}
+                        pointerEvents="none"
+                      >
+                        <Marker coordinate={{ latitude: lat, longitude: lng }} />
+                      </MapView>
+                    </View>
+                  );
+                })()}
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Household Size</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.householdSize || 'N/A'}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Urgency</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={[styles.detailUrgencyDot, { backgroundColor: getUrgencyColor(selectedRequest.urgencyLevel) }]} />
+                    <Text style={[styles.detailValue, { marginLeft: 8 }]}>{selectedRequest.urgencyLevel}</Text>
+                  </View>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Status</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.status}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Needs</Text>
+                  <Text style={styles.detailValue}>
+                    {['food','water','medicine','shelter'].filter(k => (selectedRequest.aidTypes as any)[k]).join(', ') || 'None'}
+                    {selectedRequest.aidTypes.other ? `, Other: ${selectedRequest.aidTypes.other}` : ''}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Additional Notes</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.additionalNotes || '—'}</Text>
+                </View>
+                {(selectedRequest.createdAt || selectedRequest.updatedAt) && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Timestamps</Text>
+                    <Text style={styles.detailValue}>
+                      {selectedRequest.createdAt ? `Created: ${new Date((selectedRequest.createdAt.seconds ?? 0) * 1000).toLocaleString()}` : ''}
+                      {selectedRequest.updatedAt ? `\nUpdated: ${new Date((selectedRequest.updatedAt.seconds ?? 0) * 1000).toLocaleString()}` : ''}
+                    </Text>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
+                  <TouchableOpacity style={[styles.editButton, { flex: 1 }]} onPress={() => { if (selectedRequest) { setIsDetailOpen(false); onPressEdit(selectedRequest); } }}>
+                    <Text style={styles.actionText}>Edit</Text>
+                  </TouchableOpacity>
+                  <View style={{ width: 12 }} />
+                  <TouchableOpacity style={[styles.cancelButton, { flex: 1 }]} onPress={() => { if (selectedRequest) { setIsDetailOpen(false); onPressCancel(selectedRequest); } }}>
+                    <Text style={styles.actionText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
       {/* Requests List */}
       <View style={styles.listHeaderRow}>
         <Text style={styles.sectionTitle}>Your Requests</Text>
@@ -570,6 +724,28 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
+  },
+  detailRow: {
+    marginBottom: 12,
+  },
+  detailLabel: {
+    fontSize: 13,
+    color: '#777',
+    marginBottom: 4,
+  },
+  detailValue: {
+    fontSize: 16,
+    color: '#333',
+  },
+  detailUrgencyDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  map: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
   },
   closeButton: {
     padding: 5,
