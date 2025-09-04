@@ -28,9 +28,10 @@ import {
   doc,
   updateDoc,
 } from 'firebase/firestore';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { db } from '@/FirebaseConfig';
+import { auth, db } from '@/FirebaseConfig';
 
 interface AidRequestForm {
   fullName: string;
@@ -54,6 +55,7 @@ interface AidRequest extends AidRequestForm {
   status: 'Requested' | 'Cancelled' | 'In Progress' | 'Completed';
   createdAt?: any;
   updatedAt?: any;
+  userId?: string;
 }
 
 export default function AidScreen() {
@@ -77,34 +79,48 @@ export default function AidScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [locationPermission, setLocationPermission] = useState<boolean>(false);
 
-  const [userIdentifier, setUserIdentifier] = useState<string>('');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [requests, setRequests] = useState<AidRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState<boolean>(false);
   const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
+  const [unsubscribeRequests, setUnsubscribeRequests] = useState<(() => void) | null>(null);
 
   useEffect(() => {
     checkLocationPermission();
-    restoreIdentifierAndSubscribe();
+    const unsubAuth = onAuthStateChanged(auth, (u) => {
+      setCurrentUser(u);
+    });
+    return () => {
+      if (unsubscribeRequests) {
+        unsubscribeRequests();
+      }
+      unsubAuth();
+    };
   }, []);
 
-  const restoreIdentifierAndSubscribe = async () => {
-    try {
-      const saved = await AsyncStorage.getItem('aid_user_identifier');
-      if (saved) {
-        setUserIdentifier(saved);
-        subscribeToRequests(saved);
+  useEffect(() => {
+    if (!currentUser) {
+      setRequests([]);
+      if (unsubscribeRequests) {
+        unsubscribeRequests();
+        setUnsubscribeRequests(null);
       }
-    } catch (e) {
-      // noop
+      return;
     }
-  };
+    if (unsubscribeRequests) {
+      unsubscribeRequests();
+      setUnsubscribeRequests(null);
+    }
+    const unsub = subscribeToRequests(currentUser.uid);
+    if (unsub) setUnsubscribeRequests(() => unsub);
+  }, [currentUser?.uid]);
 
-  const subscribeToRequests = (identifierValue: string) => {
-    if (!identifierValue) return;
+  const subscribeToRequests = (userId: string) => {
+    if (!userId) return;
     setIsLoadingRequests(true);
     const q = query(
       collection(db, 'aid_requests'),
-      where('identifier', '==', identifierValue)
+      where('userId', '==', userId)
       // Removed orderBy('createdAt', 'desc') to avoid needing a composite index
     );
     return onSnapshot(q, (snapshot) => {
@@ -199,6 +215,10 @@ export default function AidScreen() {
       Alert.alert('Error', 'Please fill in all required fields (Name, ID/Phone, and Address)');
       return;
     }
+    if (!currentUser?.uid) {
+      Alert.alert('Not signed in', 'Please sign in to submit a request.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -211,12 +231,11 @@ export default function AidScreen() {
       } else {
         const docRef = await addDoc(collection(db, 'aid_requests'), {
           ...formData,
+          userId: currentUser.uid,
           status: 'Requested',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
-        await AsyncStorage.setItem('aid_user_identifier', formData.identifier);
-        setUserIdentifier(formData.identifier);
         Alert.alert(
           'Success!',
           `Your request has been submitted. Track with Request ID: ${docRef.id}`,
@@ -283,11 +302,11 @@ export default function AidScreen() {
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>{item.fullName}</Text>
           <View style={styles.cardActions}>
-            <TouchableOpacity onPress={() => onPressEdit(item)} style={styles.iconButton}>
-              <FontAwesome name="pencil" size={18} color="#333" />
+            <TouchableOpacity onPress={() => onPressEdit(item)} style={styles.editButton}>
+              <Text style={styles.actionText}>Edit</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => onPressCancel(item)} style={styles.iconButton}>
-              <FontAwesome name="ban" size={18} color="#c62828" />
+            <TouchableOpacity onPress={() => onPressCancel(item)} style={styles.cancelButton}>
+              <Text style={styles.actionText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -478,11 +497,9 @@ export default function AidScreen() {
       {/* Requests List */}
       <View style={styles.listHeaderRow}>
         <Text style={styles.sectionTitle}>Your Requests</Text>
-        {userIdentifier ? (
-          <Text style={styles.smallNote}>for ID: {userIdentifier}</Text>
-        ) : (
-          <Text style={styles.smallNote}>Submit once to save your ID</Text>
-        )}
+        {currentUser ? (
+          <Text style={styles.smallNote}>for {currentUser.email || currentUser.uid}</Text>
+        ) : null}
       </View>
       {isLoadingRequests ? (
         <ActivityIndicator size="small" color="#2196F3" />
@@ -491,6 +508,7 @@ export default function AidScreen() {
           data={requests}
           keyExtractor={(item) => item.id}
           renderItem={renderRequestItem}
+          style={styles.list}
           ListEmptyComponent={<Text style={styles.emptyText}>No requests yet.</Text>}
           contentContainerStyle={requests.length === 0 ? { flexGrow: 1, justifyContent: 'center', alignItems: 'center' } : undefined}
         />
@@ -506,6 +524,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingHorizontal: 20,
     backgroundColor: '#f5f5f5',
+  },
+  list: {
+    width: '100%',
+    marginHorizontal: -20,
   },
   title: {
     fontSize: 28,
@@ -666,11 +688,12 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: 0,
+    padding: 16,
     marginBottom: 10,
     borderColor: '#eee',
-    borderWidth: 1,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -687,9 +710,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  iconButton: {
-    padding: 6,
+  editButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#1976D2',
     marginLeft: 6,
+  },
+  cancelButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#C62828',
+    marginLeft: 8,
+  },
+  actionText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   cardSub: {
     color: '#555',
