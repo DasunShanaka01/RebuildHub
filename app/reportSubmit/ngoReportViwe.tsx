@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from "react-native";
 import { collection, onSnapshot, updateDoc, doc } from "firebase/firestore";
 import { db } from "../../FirebaseConfig";
+import BackButton from '../../components/BackButton';
 
 export default function NGOReportView() {
   const [reports, setReports] = useState<any[]>([]);
@@ -23,6 +24,7 @@ export default function NGOReportView() {
       <Text style={styles.title}>{item.category} - {item.severity}</Text>
       <Text>Description: {item.description}</Text>
       <Text>Status: {item.reportStatus}</Text>
+
       <View style={styles.row}>
         <TouchableOpacity style={[styles.button, { backgroundColor: "#4CAF50" }]} onPress={() => updateStatus(item.id, "approved")}>
           <Text style={styles.btnText}>Approve</Text>
@@ -34,12 +36,15 @@ export default function NGOReportView() {
           <Text style={styles.btnText}>In Progress</Text>
         </TouchableOpacity>
       </View>
+
     </View>
   );
 
   return (
     <View style={{ flex: 1, padding: 16, backgroundColor: "#f9f9f9" }}>
+        <BackButton />
       <Text style={styles.header}>NGO Dashboard</Text>
+        
       <FlatList
         data={reports}
         keyExtractor={(item) => item.id}
