@@ -37,15 +37,11 @@
     "react-native": "0.79.5",
     "react-native-background-timer": "^2.4.1",
     "react-native-dropdown-picker": "^5.4.6",
-<<<<<<< HEAD
     "react-native-maps": "1.20.1",
-=======
->>>>>>> bacd9ed67462ac1136fbddbce15f56871200da09
     "react-native-reanimated": "~3.17.4",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
     "react-native-web": "~0.20.0",
-    "react-native-maps": "1.20.1",
     "expo-maps": "~0.11.0"
   },
   "devDependencies": {
