@@ -1,7 +1,7 @@
 // Remove the sync logic from DamageReportForm and simplify it
 import { router } from 'expo-router';
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Image, Alert, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, Image, Alert, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList, ScrollView } from 'react-native';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -11,7 +11,8 @@ import { collection, addDoc } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, db } from '../../FirebaseConfig';
 import BackButton from '../../components/BackButton';
-import { useSyncService } from '../contexts/SyncProvider'; 
+import { useSyncService } from '../contexts/SyncProvider';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps'; 
 const CLOUDINARY_CONFIG = {
   cloudName: 'dkp01emhb',
   uploadPreset: 'adadadad', 
@@ -84,6 +85,10 @@ export default function DamageReportForm() {
   const [description, setDescription] = useState('');
   const [image, setImage] = useState<string | null>(null);
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [address, setAddress] = useState<string>('');
+  const [manualLat, setManualLat] = useState<string>('');
+  const [manualLon, setManualLon] = useState<string>('');
+  const [showLocationInput, setShowLocationInput] = useState(false);
   const [category, setCategory] = useState<string | null>(null);
   const [severity, setSeverity] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
@@ -124,14 +129,77 @@ export default function DamageReportForm() {
   }, [id]);
 
   const getLocation = async () => {
-    let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission denied', 'Location permission is required');
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission denied', 'Location permission is required');
+        return;
+      }
+      let loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      setLocation(loc.coords);
+      
+      // Reverse geocode to get address
+      const reverseGeocode = await Location.reverseGeocodeAsync({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+      
+      if (reverseGeocode.length > 0) {
+        const addr = reverseGeocode[0];
+        const fullAddress = `${addr.street || ''} ${addr.city || ''} ${addr.region || ''} ${addr.country || ''}`.trim();
+        setAddress(fullAddress);
+      }
+      
+      Alert.alert('Location Captured', `Address: ${address || 'Unknown'}`);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to get location: ' + (error as Error).message);
+    }
+  };
+
+  const geocodeAddress = async () => {
+    if (!address.trim()) {
+      Alert.alert('Error', 'Please enter an address');
       return;
     }
-    let loc = await Location.getCurrentPositionAsync({});
-    setLocation(loc.coords);
-    Alert.alert('Location Captured', `Lat: ${loc.coords.latitude}, Lon: ${loc.coords.longitude}`);
+    
+    try {
+      const geocode = await Location.geocodeAsync(address);
+      if (geocode.length > 0) {
+        const coords = geocode[0];
+        setLocation(coords);
+        Alert.alert('Address Found', `Lat: ${coords.latitude.toFixed(4)}, Lon: ${coords.longitude.toFixed(4)}`);
+      } else {
+        Alert.alert('Error', 'Address not found');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to geocode address: ' + (error as Error).message);
+    }
+  };
+
+  const setManualLocation = () => {
+    const lat = parseFloat(manualLat);
+    const lon = parseFloat(manualLon);
+    
+    if (isNaN(lat) || isNaN(lon)) {
+      Alert.alert('Error', 'Please enter valid latitude and longitude');
+      return;
+    }
+    
+    if (lat < -90 || lat > 90) {
+      Alert.alert('Error', 'Latitude must be between -90 and 90');
+      return;
+    }
+    
+    if (lon < -180 || lon > 180) {
+      Alert.alert('Error', 'Longitude must be between -180 and 180');
+      return;
+    }
+    
+    setLocation({ latitude: lat, longitude: lon });
+    setAddress('');
+    Alert.alert('Location Set', `Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(4)}`);
   };
 
   const pickImage = async () => {
@@ -226,6 +294,10 @@ export default function DamageReportForm() {
       setDescription('');
       setImage(null);
       setLocation(null);
+      setAddress('');
+      setManualLat('');
+      setManualLon('');
+      setShowLocationInput(false);
       setCategory(null);
       setSeverity(null);
     } catch (error: any) {
@@ -237,6 +309,10 @@ export default function DamageReportForm() {
     setDescription('');
     setImage(null);
     setLocation(null);
+    setAddress('');
+    setManualLat('');
+    setManualLon('');
+    setShowLocationInput(false);
     setCategory(null);
     setSeverity(null);
     router.replace('/(tabs)');
@@ -244,61 +320,162 @@ export default function DamageReportForm() {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
-      
-      <BackButton />
-      
-      <Text style={styles.title}>Damage Reporting</Text>
-      <Text style={styles.userText}>User: {user?.email || `User-${id}`}</Text>
-      
-      {/* Show pending reports status */}
-      {pendingReports > 0 && (
-        <View style={styles.pendingReportsContainer}>
-          <Text style={styles.pendingReportsText}>
-            {pendingReports} report(s) pending sync
-          </Text>
-          <Button title="Sync Now" onPress={manualSync} color="#FF9800" />
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <BackButton />
+        
+        <Text style={styles.title}>Damage Reporting</Text>
+        <Text style={styles.userText}>User: {user?.email || `User-${id}`}</Text>
+        
+        {/* Show pending reports status */}
+        {pendingReports > 0 && (
+          <View style={styles.pendingReportsContainer}>
+            <Text style={styles.pendingReportsText}>
+              {pendingReports} report(s) pending sync
+            </Text>
+            <Button title="Sync Now" onPress={manualSync} color="#FF9800" />
+          </View>
+        )}
+        
+        <TextInput
+          style={[styles.input, { height: 80 }]}
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Describe the damage"
+          multiline
+        />
+        <Button title="Pick Image/Video" onPress={pickImage} />
+        {image && <Image source={{ uri: image }} style={styles.imagePreview} />}
+        
+        {/* Enhanced Location Section */}
+        <View style={styles.locationSection}>
+          <Text style={styles.sectionTitle}>Location Information</Text>
+          
+          {/* Location Buttons */}
+          <View style={styles.locationButtons}>
+            <Button title="Get Current Location" onPress={getLocation} color="#4DB6AC" />
+            <Button 
+              title={showLocationInput ? "Hide Manual Input" : "Manual Input"} 
+              onPress={() => setShowLocationInput(!showLocationInput)} 
+              color="#FF9800" 
+            />
+          </View>
+          
+          {/* Manual Location Input */}
+          {showLocationInput && (
+            <View style={styles.manualLocationContainer}>
+              <Text style={styles.label}>Enter Address:</Text>
+              <TextInput
+                style={styles.input}
+                value={address}
+                onChangeText={setAddress}
+                placeholder="Enter full address"
+              />
+              <Button title="Find Address" onPress={geocodeAddress} color="#4DB6AC" />
+              
+              <Text style={styles.label}>Or Enter Coordinates:</Text>
+              <View style={styles.coordinateInputs}>
+                <TextInput
+                  style={[styles.input, styles.coordinateInput]}
+                  value={manualLat}
+                  onChangeText={setManualLat}
+                  placeholder="Latitude"
+                  keyboardType="numeric"
+                />
+                <TextInput
+                  style={[styles.input, styles.coordinateInput]}
+                  value={manualLon}
+                  onChangeText={setManualLon}
+                  placeholder="Longitude"
+                  keyboardType="numeric"
+                />
+              </View>
+              <Button title="Set Coordinates" onPress={setManualLocation} color="#4DB6AC" />
+            </View>
+          )}
+          
+          {/* Location Display */}
+          {location && (
+            <View style={styles.locationDisplay}>
+              <Text style={styles.locationText}>
+                📍 Lat: {location.latitude.toFixed(4)}, Lon: {location.longitude.toFixed(4)}
+              </Text>
+              {address && (
+                <Text style={styles.addressText}>
+                  📍 Address: {address}
+                </Text>
+              )}
+              
+              {/* Small Map View */}
+              <View style={styles.mapContainer}>
+                <Text style={styles.debugText}>Map should appear here</Text>
+                <MapView
+                  style={styles.map}
+                  provider={PROVIDER_GOOGLE}
+                  region={{
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                    latitudeDelta: 0.01,
+                    longitudeDelta: 0.01,
+                  }}
+                  showsUserLocation={true}
+                  showsMyLocationButton={false}
+                  loadingEnabled={true}
+                  loadingIndicatorColor="#4DB6AC"
+                  onMapReady={() => console.log('Map is ready')}
+                >
+                  <Marker
+                    coordinate={{
+                      latitude: location.latitude,
+                      longitude: location.longitude,
+                    }}
+                    title="Report Location"
+                    description={address || "Damage Report Location"}
+                  />
+                </MapView>
+              </View>
+            </View>
+          )}
+          
+          {/* Debug: Show map even without location for testing */}
+          {!location && (
+            <View style={styles.locationDisplay}>
+              <Text style={styles.debugText}>No location set yet. Get location or enter manually to see map.</Text>
+              <View style={styles.mapContainer}>
+                <Text style={styles.debugText}>Map will appear here once location is set</Text>
+                <View style={styles.placeholderMap}>
+                  <Text style={styles.mapPlaceholderText}>🗺️ Map Placeholder</Text>
+                  <Text style={styles.placeholderSubtext}>Set a location to see the map</Text>
+                </View>
+              </View>
+            </View>
+          )}
         </View>
-      )}
-      
-      <TextInput
-        style={[styles.input, { height: 80 }]}
-        value={description}
-        onChangeText={setDescription}
-        placeholder="Describe the damage"
-        multiline
-      />
-      <Button title="Pick Image/Video" onPress={pickImage} />
-      {image && <Image source={{ uri: image }} style={styles.imagePreview} />}
-      <Button title="Get Location" onPress={getLocation} />
-      {location && (
-        <Text style={styles.locationText}>
-          Lat: {location.latitude.toFixed(4)}, Lon: {location.longitude.toFixed(4)}
+        
+        <Text style={styles.label}>Select Damage Category</Text>
+        <CustomDropdown
+          items={categories}
+          selectedValue={category}
+          onSelect={setCategory}
+          placeholder="Choose category"
+          style={styles.dropdownWrapper}
+        />
+        <Text style={styles.label}>Select Severity</Text>
+        <CustomDropdown
+          items={severities}
+          selectedValue={severity}
+          onSelect={setSeverity}
+          placeholder="Choose severity"
+          style={styles.dropdownWrapper}
+        />
+        <View style={styles.buttonRow}>
+          <Button title="Submit" onPress={handleSubmit} />
+          <Button title="Cancel" color="red" onPress={handleCancel} />
+        </View>
+        <Text style={styles.statusText}>
+          Status: {isOffline ? 'Offline' : 'Online'}
+          {pendingReports > 0 && ` • ${pendingReports} pending`}
         </Text>
-      )}
-      <Text style={styles.label}>Select Damage Category</Text>
-      <CustomDropdown
-        items={categories}
-        selectedValue={category}
-        onSelect={setCategory}
-        placeholder="Choose category"
-        style={styles.dropdownWrapper}
-      />
-      <Text style={styles.label}>Select Severity</Text>
-      <CustomDropdown
-        items={severities}
-        selectedValue={severity}
-        onSelect={setSeverity}
-        placeholder="Choose severity"
-        style={styles.dropdownWrapper}
-      />
-      <View style={styles.buttonRow}>
-        <Button title="Submit" onPress={handleSubmit} />
-        <Button title="Cancel" color="red" onPress={handleCancel} />
-      </View>
-      <Text style={styles.statusText}>
-        Status: {isOffline ? 'Offline' : 'Online'}
-        {pendingReports > 0 && ` • ${pendingReports} pending`}
-      </Text>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -358,6 +535,87 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     fontSize: 14,
     fontStyle: 'italic',
+    color: '#333',
+  },
+  addressText: {
+    marginVertical: 4,
+    fontSize: 14,
+    color: '#666',
+  },
+  locationSection: {
+    marginVertical: 16,
+    padding: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E0F2F1',
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1A237E',
+    marginBottom: 12,
+  },
+  locationButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 16,
+  },
+  manualLocationContainer: {
+    backgroundColor: '#F8F9FA',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  coordinateInputs: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  coordinateInput: {
+    flex: 0.48,
+    marginBottom: 0,
+  },
+  locationDisplay: {
+    backgroundColor: '#F0F8FF',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4DB6AC',
+  },
+  mapContainer: {
+    height: 200,
+    marginTop: 12,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#4DB6AC',
+  },
+  map: {
+    flex: 1,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginBottom: 4,
+  },
+  placeholderMap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#E8F4FD',
+    borderRadius: 8,
+  },
+  mapPlaceholderText: {
+    fontSize: 24,
+    color: '#4DB6AC',
+    marginBottom: 8,
+  },
+  placeholderSubtext: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
   label: {
     marginTop: 10,
