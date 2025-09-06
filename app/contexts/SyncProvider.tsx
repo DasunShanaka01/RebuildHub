@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import { syncService } from '../services/SyncService';
+import { syncService } from '../services/SyncService'; // Assume this service is implemented elsewhere
 
 interface SyncContextType {
   pendingReports: number;

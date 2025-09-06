@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -28,9 +28,11 @@ import {
   doc,
   updateDoc,
 } from 'firebase/firestore';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import * as Location from 'expo-location';
+import MapView, { Marker } from 'react-native-maps';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { db } from '@/FirebaseConfig';
+import { auth, db } from '@/FirebaseConfig';
 
 interface AidRequestForm {
   fullName: string;
@@ -54,6 +56,7 @@ interface AidRequest extends AidRequestForm {
   status: 'Requested' | 'Cancelled' | 'In Progress' | 'Completed';
   createdAt?: any;
   updatedAt?: any;
+  userId?: string;
 }
 
 export default function AidScreen() {
@@ -77,34 +80,51 @@ export default function AidScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [locationPermission, setLocationPermission] = useState<boolean>(false);
 
-  const [userIdentifier, setUserIdentifier] = useState<string>('');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [requests, setRequests] = useState<AidRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState<boolean>(false);
   const [editingRequestId, setEditingRequestId] = useState<string | null>(null);
+  const [unsubscribeRequests, setUnsubscribeRequests] = useState<(() => void) | null>(null);
+  const [selectedRequest, setSelectedRequest] = useState<AidRequest | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const mapRef = useRef<MapView | null>(null);
 
   useEffect(() => {
     checkLocationPermission();
-    restoreIdentifierAndSubscribe();
+    const unsubAuth = onAuthStateChanged(auth, (u) => {
+      setCurrentUser(u);
+    });
+    return () => {
+      if (unsubscribeRequests) {
+        unsubscribeRequests();
+      }
+      unsubAuth();
+    };
   }, []);
 
-  const restoreIdentifierAndSubscribe = async () => {
-    try {
-      const saved = await AsyncStorage.getItem('aid_user_identifier');
-      if (saved) {
-        setUserIdentifier(saved);
-        subscribeToRequests(saved);
+  useEffect(() => {
+    if (!currentUser) {
+      setRequests([]);
+      if (unsubscribeRequests) {
+        unsubscribeRequests();
+        setUnsubscribeRequests(null);
       }
-    } catch (e) {
-      // noop
+      return;
     }
-  };
+    if (unsubscribeRequests) {
+      unsubscribeRequests();
+      setUnsubscribeRequests(null);
+    }
+    const unsub = subscribeToRequests(currentUser.uid);
+    if (unsub) setUnsubscribeRequests(() => unsub);
+  }, [currentUser?.uid]);
 
-  const subscribeToRequests = (identifierValue: string) => {
-    if (!identifierValue) return;
+  const subscribeToRequests = (userId: string) => {
+    if (!userId) return;
     setIsLoadingRequests(true);
     const q = query(
       collection(db, 'aid_requests'),
-      where('identifier', '==', identifierValue)
+      where('userId', '==', userId)
       // Removed orderBy('createdAt', 'desc') to avoid needing a composite index
     );
     return onSnapshot(q, (snapshot) => {
@@ -156,7 +176,19 @@ export default function AidScreen() {
       const gpsString = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
       setFormData(prev => ({ ...prev, gpsLocation: gpsString }));
 
-      Alert.alert('Success', `GPS Location captured: ${gpsString}`);
+      // Removed success alert to avoid popup on GPS capture
+
+      // Center the form map on the live location
+      try {
+        mapRef.current?.animateToRegion({
+          latitude,
+          longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        }, 500);
+      } catch (e) {
+        // noop
+      }
     } catch (error) {
       Alert.alert('Error', 'Failed to get current location. Please enter manually.');
       console.error('Error getting location:', error);
@@ -199,6 +231,10 @@ export default function AidScreen() {
       Alert.alert('Error', 'Please fill in all required fields (Name, ID/Phone, and Address)');
       return;
     }
+    if (!currentUser?.uid) {
+      Alert.alert('Not signed in', 'Please sign in to submit a request.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -211,12 +247,11 @@ export default function AidScreen() {
       } else {
         const docRef = await addDoc(collection(db, 'aid_requests'), {
           ...formData,
+          userId: currentUser.uid,
           status: 'Requested',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
-        await AsyncStorage.setItem('aid_user_identifier', formData.identifier);
-        setUserIdentifier(formData.identifier);
         Alert.alert(
           'Success!',
           `Your request has been submitted. Track with Request ID: ${docRef.id}`,
@@ -257,6 +292,11 @@ export default function AidScreen() {
     setShowForm(true);
   };
 
+  const onPressView = (request: AidRequest) => {
+    setSelectedRequest(request);
+    setIsDetailOpen(true);
+  };
+
   const onPressCancel = async (request: AidRequest) => {
     Alert.alert(
       'Cancel Request',
@@ -279,15 +319,15 @@ export default function AidScreen() {
 
   const renderRequestItem = ({ item }: { item: AidRequest }) => {
     return (
-      <View style={styles.card}>
+      <TouchableOpacity style={styles.card} onPress={() => onPressView(item)} activeOpacity={0.85}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>{item.fullName}</Text>
           <View style={styles.cardActions}>
-            <TouchableOpacity onPress={() => onPressEdit(item)} style={styles.iconButton}>
-              <FontAwesome name="pencil" size={18} color="#333" />
+            <TouchableOpacity onPress={() => onPressEdit(item)} style={styles.editButton}>
+              <Text style={styles.actionText}>Edit</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => onPressCancel(item)} style={styles.iconButton}>
-              <FontAwesome name="ban" size={18} color="#c62828" />
+            <TouchableOpacity onPress={() => onPressCancel(item)} style={styles.cancelButton}>
+              <Text style={styles.actionText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -304,7 +344,7 @@ export default function AidScreen() {
         <Text style={styles.cardMeta}>Needs: {['food','water','medicine','shelter']
           .filter((k) => (item.aidTypes as any)[k])
           .join(', ') || 'None'} {item.aidTypes.other ? `, Other: ${item.aidTypes.other}` : ''}</Text>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -388,6 +428,34 @@ export default function AidScreen() {
                     <Text style={styles.gpsButtonText}>📍</Text>
                   </TouchableOpacity>
                 </View>
+              {(() => {
+                const gps = formData.gpsLocation;
+                const parts = gps ? gps.split(',').map((p) => p.trim()) : [];
+                const lat = parts.length === 2 ? Number(parts[0]) : NaN;
+                const lng = parts.length === 2 ? Number(parts[1]) : NaN;
+                const hasCoords = !Number.isNaN(lat) && !Number.isNaN(lng);
+                const initialRegion = hasCoords
+                  ? { latitude: lat, longitude: lng, latitudeDelta: 0.01, longitudeDelta: 0.01 }
+                  : undefined;
+                return (
+                  <View style={{ marginTop: 8 }}>
+                    <MapView
+                      ref={mapRef}
+                      style={styles.map}
+                      initialRegion={initialRegion}
+                      onPress={(e) => {
+                        const c = e.nativeEvent.coordinate;
+                        handleInputChange('gpsLocation', `${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)}`);
+                      }}
+                    >
+                      {hasCoords && (
+                        <Marker coordinate={{ latitude: lat, longitude: lng }} />
+                      )}
+                    </MapView>
+                    <Text style={{ color: '#666', marginTop: 6, fontSize: 12 }}>Tap on the map to set location</Text>
+                  </View>
+                );
+              })()}
               </View>
 
               {/* Aid Request Type */}
@@ -475,14 +543,117 @@ export default function AidScreen() {
         </Modal>
       )}
 
+      {/* Detail Modal */}
+      <Modal
+        visible={isDetailOpen}
+        animationType="slide"
+        onRequestClose={() => setIsDetailOpen(false)}
+      >
+        <KeyboardAvoidingView style={styles.modalContainer} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Request Details</Text>
+            <TouchableOpacity onPress={() => setIsDetailOpen(false)} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
+            {selectedRequest && (
+              <View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Full Name</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.fullName}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Identifier</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.identifier}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Address</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.address}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>GPS</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.gpsLocation || 'N/A'}</Text>
+                </View>
+                {(() => {
+                  const gps = selectedRequest.gpsLocation;
+                  const parts = gps ? gps.split(',').map((p) => p.trim()) : [];
+                  const lat = parts.length === 2 ? Number(parts[0]) : NaN;
+                  const lng = parts.length === 2 ? Number(parts[1]) : NaN;
+                  const valid = !Number.isNaN(lat) && !Number.isNaN(lng);
+                  if (!valid) return null;
+                  return (
+                    <View style={{ marginBottom: 16 }}>
+                      <MapView
+                        style={styles.map}
+                        initialRegion={{
+                          latitude: lat,
+                          longitude: lng,
+                          latitudeDelta: 0.01,
+                          longitudeDelta: 0.01,
+                        }}
+                        pointerEvents="none"
+                      >
+                        <Marker coordinate={{ latitude: lat, longitude: lng }} />
+                      </MapView>
+                    </View>
+                  );
+                })()}
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Household Size</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.householdSize || 'N/A'}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Urgency</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={[styles.detailUrgencyDot, { backgroundColor: getUrgencyColor(selectedRequest.urgencyLevel) }]} />
+                    <Text style={[styles.detailValue, { marginLeft: 8 }]}>{selectedRequest.urgencyLevel}</Text>
+                  </View>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Status</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.status}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Needs</Text>
+                  <Text style={styles.detailValue}>
+                    {['food','water','medicine','shelter'].filter(k => (selectedRequest.aidTypes as any)[k]).join(', ') || 'None'}
+                    {selectedRequest.aidTypes.other ? `, Other: ${selectedRequest.aidTypes.other}` : ''}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Additional Notes</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.additionalNotes || '—'}</Text>
+                </View>
+                {(selectedRequest.createdAt || selectedRequest.updatedAt) && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Timestamps</Text>
+                    <Text style={styles.detailValue}>
+                      {selectedRequest.createdAt ? `Created: ${new Date((selectedRequest.createdAt.seconds ?? 0) * 1000).toLocaleString()}` : ''}
+                      {selectedRequest.updatedAt ? `\nUpdated: ${new Date((selectedRequest.updatedAt.seconds ?? 0) * 1000).toLocaleString()}` : ''}
+                    </Text>
+                  </View>
+                )}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
+                  <TouchableOpacity style={[styles.editButton, { flex: 1 }]} onPress={() => { if (selectedRequest) { setIsDetailOpen(false); onPressEdit(selectedRequest); } }}>
+                    <Text style={styles.actionText}>Edit</Text>
+                  </TouchableOpacity>
+                  <View style={{ width: 12 }} />
+                  <TouchableOpacity style={[styles.cancelButton, { flex: 1 }]} onPress={() => { if (selectedRequest) { setIsDetailOpen(false); onPressCancel(selectedRequest); } }}>
+                    <Text style={styles.actionText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
       {/* Requests List */}
       <View style={styles.listHeaderRow}>
         <Text style={styles.sectionTitle}>Your Requests</Text>
-        {userIdentifier ? (
-          <Text style={styles.smallNote}>for ID: {userIdentifier}</Text>
-        ) : (
-          <Text style={styles.smallNote}>Submit once to save your ID</Text>
-        )}
+        {currentUser ? (
+          <Text style={styles.smallNote}>for {currentUser.email || currentUser.uid}</Text>
+        ) : null}
       </View>
       {isLoadingRequests ? (
         <ActivityIndicator size="small" color="#2196F3" />
@@ -491,6 +662,7 @@ export default function AidScreen() {
           data={requests}
           keyExtractor={(item) => item.id}
           renderItem={renderRequestItem}
+          style={styles.list}
           ListEmptyComponent={<Text style={styles.emptyText}>No requests yet.</Text>}
           contentContainerStyle={requests.length === 0 ? { flexGrow: 1, justifyContent: 'center', alignItems: 'center' } : undefined}
         />
@@ -506,6 +678,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingHorizontal: 20,
     backgroundColor: '#f5f5f5',
+  },
+  list: {
+    width: '100%',
+    marginHorizontal: -20,
   },
   title: {
     fontSize: 28,
@@ -548,6 +724,28 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#333',
+  },
+  detailRow: {
+    marginBottom: 12,
+  },
+  detailLabel: {
+    fontSize: 13,
+    color: '#777',
+    marginBottom: 4,
+  },
+  detailValue: {
+    fontSize: 16,
+    color: '#333',
+  },
+  detailUrgencyDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  map: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
   },
   closeButton: {
     padding: 5,
@@ -666,11 +864,12 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
+    borderRadius: 0,
+    padding: 16,
     marginBottom: 10,
     borderColor: '#eee',
-    borderWidth: 1,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -687,9 +886,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  iconButton: {
-    padding: 6,
+  editButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#1976D2',
     marginLeft: 6,
+  },
+  cancelButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#C62828',
+    marginLeft: 8,
+  },
+  actionText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   cardSub: {
     color: '#555',
