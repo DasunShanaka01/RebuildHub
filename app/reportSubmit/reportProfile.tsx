@@ -7,7 +7,7 @@ import { useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { auth, db } from '../../FirebaseConfig';
-import BackButton from '../../components/BackButton';
+import BackButton from '../../components/BackButton'; 
 
 const CLOUDINARY_CONFIG = {
   cloudName: 'dkp01emhb',
