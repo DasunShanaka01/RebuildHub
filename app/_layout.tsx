@@ -58,6 +58,7 @@ function RootLayoutNav() {
           <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
           <Stack.Screen name="reportSubmit/report" options={{ headerShown: false }} />
           <Stack.Screen name="reportSubmit/reportProfile" options={{ headerShown: false }} />
+          <Stack.Screen name="reportSubmit/ngoReportViwe" options={{ headerShown: false }} />
         </Stack>
       </SyncProvider>
     </ThemeProvider>

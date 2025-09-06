@@ -35,6 +35,8 @@ const ProfileScreen: React.FC = () => {
 
       <Button title="Go to Report" onPress={() => router.replace('/reportSubmit/reportProfile')} />
 
+      <Button title="Go to NGO Report View" onPress={() => router.replace('/reportSubmit/ngoReportViwe')} />
+
     </View>
   );
 };
