@@ -11,7 +11,10 @@ const Index = () => {
   const signIn = async () => {
     try {
       const user = await signInWithEmailAndPassword(auth, email, password);
-      if (user) router.replace('/(tabs)');
+      if (user) {
+        const isNgo = email.trim().toLowerCase() === 'ngo@gmail.com';
+        router.replace(isNgo ? '/(ngo)/dashboard' : '/(tabs)');
+      }
     } catch (error: any) {
       console.log(error);
       alert('Sign In Failed: ' + error.message);
