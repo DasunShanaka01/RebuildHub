@@ -35,6 +35,14 @@ export default function NgoTabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="aid"
+        options={{
+          title: 'Aid',
+          headerTitle: 'Aid Management',
+          tabBarIcon: ({ color }) => <TabBarIcon name="heart" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
