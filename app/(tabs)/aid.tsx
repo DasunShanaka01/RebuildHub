@@ -53,7 +53,7 @@ interface AidRequestForm {
 
 interface AidRequest extends AidRequestForm {
   id: string;
-  status: 'Requested' | 'Cancelled' | 'In Progress' | 'Completed';
+  status: 'Requested' | 'Cancelled' | 'In Progress' | 'Completed' | 'Delivered';
   createdAt?: any;
   updatedAt?: any;
   userId?: string;
@@ -318,18 +318,22 @@ export default function AidScreen() {
   };
 
   const renderRequestItem = ({ item }: { item: AidRequest }) => {
+    const canEditOrCancel = item.status === 'Requested';
+    
     return (
       <TouchableOpacity style={styles.card} onPress={() => onPressView(item)} activeOpacity={0.85}>
         <View style={styles.cardHeader}>
           <Text style={styles.cardTitle}>{item.fullName}</Text>
-          <View style={styles.cardActions}>
-            <TouchableOpacity onPress={() => onPressEdit(item)} style={styles.editButton}>
-              <Text style={styles.actionText}>Edit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => onPressCancel(item)} style={styles.cancelButton}>
-              <Text style={styles.actionText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+          {canEditOrCancel && (
+            <View style={styles.cardActions}>
+              <TouchableOpacity onPress={() => onPressEdit(item)} style={styles.editButton}>
+                <Text style={styles.actionText}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => onPressCancel(item)} style={styles.cancelButton}>
+                <Text style={styles.actionText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
         <Text style={styles.cardSub}>{item.address}</Text>
         <View style={styles.badgesRow}>
@@ -634,15 +638,17 @@ export default function AidScreen() {
                     </Text>
                   </View>
                 )}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
-                  <TouchableOpacity style={[styles.editButton, { flex: 1 }]} onPress={() => { if (selectedRequest) { setIsDetailOpen(false); onPressEdit(selectedRequest); } }}>
-                    <Text style={styles.actionText}>Edit</Text>
-                  </TouchableOpacity>
-                  <View style={{ width: 12 }} />
-                  <TouchableOpacity style={[styles.cancelButton, { flex: 1 }]} onPress={() => { if (selectedRequest) { setIsDetailOpen(false); onPressCancel(selectedRequest); } }}>
-                    <Text style={styles.actionText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
+                {selectedRequest.status === 'Requested' && (
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
+                    <TouchableOpacity style={[styles.editButton, { flex: 1 }]} onPress={() => { if (selectedRequest) { setIsDetailOpen(false); onPressEdit(selectedRequest); } }}>
+                      <Text style={styles.actionText}>Edit</Text>
+                    </TouchableOpacity>
+                    <View style={{ width: 12 }} />
+                    <TouchableOpacity style={[styles.cancelButton, { flex: 1 }]} onPress={() => { if (selectedRequest) { setIsDetailOpen(false); onPressCancel(selectedRequest); } }}>
+                      <Text style={styles.actionText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             )}
           </ScrollView>
