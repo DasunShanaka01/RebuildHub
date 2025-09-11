@@ -28,9 +28,9 @@ import { auth, db } from '@/FirebaseConfig';
 
 interface AidRequestForm {
   fullName: string;
-  identifier: string;
+  nicNumber: string;
+  contactNumber: string;
   householdSize: string;
-  address: string;
   gpsLocation: string;
   aidTypes: {
     food: boolean;
@@ -247,7 +247,6 @@ export default function NgoAidScreen() {
             {getCancelButton()}
           </View>
         </View>
-        <Text style={styles.cardSub}>{item.address}</Text>
         <View style={styles.badgesRow}>
           <View style={[styles.badge, { backgroundColor: getUrgencyColor(item.urgencyLevel) }]}>
             <Text style={styles.badgeText}>{item.urgencyLevel}</Text>
@@ -256,7 +255,7 @@ export default function NgoAidScreen() {
             <Text style={styles.badgeText}>{item.status}</Text>
           </View>
         </View>
-        <Text style={styles.cardMeta}>ID: {item.identifier} • GPS: {item.gpsLocation || 'N/A'}</Text>
+        <Text style={styles.cardMeta}>NIC: {item.nicNumber} • Contact: {item.contactNumber} • GPS: {item.gpsLocation || 'N/A'}</Text>
         <Text style={styles.cardMeta}>Needs: {['food','water','medicine','shelter']
           .filter((k) => (item.aidTypes as any)[k])
           .join(', ') || 'None'} {item.aidTypes.other ? `, Other: ${item.aidTypes.other}` : ''}</Text>
@@ -384,13 +383,13 @@ export default function NgoAidScreen() {
               </View>
               
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Identifier</Text>
-                <Text style={styles.detailValue}>{selectedRequest.identifier}</Text>
+                <Text style={styles.detailLabel}>NIC Number</Text>
+                <Text style={styles.detailValue}>{selectedRequest.nicNumber}</Text>
               </View>
               
               <View style={styles.detailRow}>
-                <Text style={styles.detailLabel}>Address</Text>
-                <Text style={styles.detailValue}>{selectedRequest.address}</Text>
+                <Text style={styles.detailLabel}>Contact Number</Text>
+                <Text style={styles.detailValue}>{selectedRequest.contactNumber}</Text>
               </View>
               
               <View style={styles.detailRow}>

@@ -36,9 +36,9 @@ import { auth, db } from '@/FirebaseConfig';
 
 interface AidRequestForm {
   fullName: string;
-  identifier: string;
+  nicNumber: string;
+  contactNumber: string;
   householdSize: string;
-  address: string;
   gpsLocation: string;
   aidTypes: {
     food: boolean;
@@ -63,9 +63,9 @@ export default function AidScreen() {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState<AidRequestForm>({
     fullName: '',
-    identifier: '',
+    nicNumber: '',
+    contactNumber: '',
     householdSize: '',
-    address: '',
     gpsLocation: '',
     aidTypes: {
       food: false,
@@ -209,9 +209,9 @@ export default function AidScreen() {
   const resetForm = () => {
     setFormData({
       fullName: '',
-      identifier: '',
+      nicNumber: '',
+      contactNumber: '',
       householdSize: '',
-      address: '',
       gpsLocation: '',
       aidTypes: {
         food: false,
@@ -227,8 +227,8 @@ export default function AidScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!formData.fullName || !formData.identifier || !formData.address) {
-      Alert.alert('Error', 'Please fill in all required fields (Name, ID/Phone, and Address)');
+    if (!formData.fullName || !formData.nicNumber || !formData.contactNumber) {
+      Alert.alert('Error', 'Please fill in all required fields (Name, NIC Number, and Contact Number)');
       return;
     }
     if (!currentUser?.uid) {
@@ -281,9 +281,9 @@ export default function AidScreen() {
     setEditingRequestId(request.id);
     setFormData({
       fullName: request.fullName,
-      identifier: request.identifier,
+      nicNumber: request.nicNumber,
+      contactNumber: request.contactNumber,
       householdSize: request.householdSize,
-      address: request.address,
       gpsLocation: request.gpsLocation,
       aidTypes: { ...request.aidTypes },
       urgencyLevel: request.urgencyLevel,
@@ -335,7 +335,6 @@ export default function AidScreen() {
             </View>
           )}
         </View>
-        <Text style={styles.cardSub}>{item.address}</Text>
         <View style={styles.badgesRow}>
           <View style={[styles.badge, { backgroundColor: getUrgencyColor(item.urgencyLevel) }]}>
             <Text style={styles.badgeText}>{item.urgencyLevel}</Text>
@@ -344,7 +343,7 @@ export default function AidScreen() {
             <Text style={styles.badgeText}>{item.status}</Text>
           </View>
         </View>
-        <Text style={styles.cardMeta}>ID: {item.identifier} • GPS: {item.gpsLocation || 'N/A'}</Text>
+        <Text style={styles.cardMeta}>NIC: {item.nicNumber} • Contact: {item.contactNumber} • GPS: {item.gpsLocation || 'N/A'}</Text>
         <Text style={styles.cardMeta}>Needs: {['food','water','medicine','shelter']
           .filter((k) => (item.aidTypes as any)[k])
           .join(', ') || 'None'} {item.aidTypes.other ? `, Other: ${item.aidTypes.other}` : ''}</Text>
@@ -396,9 +395,16 @@ export default function AidScreen() {
                 />
                 <TextInput
                   style={styles.input}
-                  placeholder="NIC / National ID OR Phone Number *"
-                  value={formData.identifier}
-                  onChangeText={(value) => handleInputChange('identifier', value)}
+                  placeholder="NIC Number *"
+                  value={formData.nicNumber}
+                  onChangeText={(value) => handleInputChange('nicNumber', value)}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Contact Number *"
+                  value={formData.contactNumber}
+                  onChangeText={(value) => handleInputChange('contactNumber', value)}
+                  keyboardType="phone-pad"
                 />
                 <TextInput
                   style={styles.input}
@@ -412,12 +418,6 @@ export default function AidScreen() {
               {/* Location Details */}
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>📍 Location Details</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Address / Village Name *"
-                  value={formData.address}
-                  onChangeText={(value) => handleInputChange('address', value)}
-                />
                 <View style={styles.gpsContainer}>
                   <TextInput
                     style={[styles.input, styles.gpsInput]}
@@ -568,12 +568,12 @@ export default function AidScreen() {
                   <Text style={styles.detailValue}>{selectedRequest.fullName}</Text>
                 </View>
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Identifier</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.identifier}</Text>
+                  <Text style={styles.detailLabel}>NIC Number</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.nicNumber}</Text>
                 </View>
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Address</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.address}</Text>
+                  <Text style={styles.detailLabel}>Contact Number</Text>
+                  <Text style={styles.detailValue}>{selectedRequest.contactNumber}</Text>
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>GPS</Text>
