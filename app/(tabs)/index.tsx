@@ -249,15 +249,21 @@
 
 
 import React, { useEffect, useState } from "react";
-import { StyleSheet, View, Text, Modal, TouchableOpacity } from "react-native";
+import {
+  StyleSheet,
+  View,
+  Text,
+  Modal,
+  TouchableOpacity,
+  Alert,
+} from "react-native";
 import { Link, Redirect } from "expo-router";
 import MapView, { PROVIDER_GOOGLE, Marker, Circle } from "react-native-maps";
 import * as Location from "expo-location";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../../FirebaseConfig"; // adjust path
 import { Picker } from "@react-native-picker/picker";
-
 
 interface Report {
   id: string;
@@ -269,12 +275,14 @@ export default function Index() {
   const [locationPermission, setLocationPermission] = useState(false);
   const [user, setUser] = useState<import("firebase/auth").User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [isSafe, setIsSafe] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false); // 👈 added for popup
+  const [modalVisible, setModalVisible] = useState(false);
   const [selectedEmergency, setSelectedEmergency] = useState<string>("");
-
 
   // Check Firebase auth session
   useEffect(() => {
@@ -325,7 +333,11 @@ export default function Index() {
 
     const inDanger = reports.some((report) => {
       const radius =
-        report.severity === "high" ? 1500 : report.severity === "medium" ? 1000 : 500;
+        report.severity === "high"
+          ? 1500
+          : report.severity === "medium"
+          ? 1000
+          : 500;
 
       const distance = getDistance(
         userLocation.latitude,
@@ -343,8 +355,13 @@ export default function Index() {
   if (loading) return null;
   if (!user) return <Redirect href="/login" />;
 
-  // Haversine formula to calculate distance between two coords
-  const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  // Haversine formula
+  const getDistance = (
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number
+  ) => {
     const R = 6371000;
     const φ1 = (lat1 * Math.PI) / 180;
     const φ2 = (lat2 * Math.PI) / 180;
@@ -359,11 +376,35 @@ export default function Index() {
     return R * c;
   };
 
+  // 👉 Save selected emergency to Firestore
+  const handleSaveEmergency = async () => {
+    if (!selectedEmergency) {
+      Alert.alert("⚠️ Please select an emergency type first.");
+      return;
+    }
+    try {
+      await addDoc(collection(db, "emergencies"), {
+        type: selectedEmergency, // string
+        userId: user?.uid || null,
+        location: userLocation || null,
+        createdAt: serverTimestamp(),
+      });
+      Alert.alert("✅ Emergency saved successfully!");
+      setModalVisible(false);
+      setSelectedEmergency(""); // reset
+    } catch (error) {
+      console.error("Error saving emergency:", error);
+      Alert.alert("❌ Error saving to Firebase.");
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Welcome to RebuildHub</Text>
-        <Text style={[styles.subtitle, isSafe ? styles.safeText : styles.dangerText]}>
+        <Text
+          style={[styles.subtitle, isSafe ? styles.safeText : styles.dangerText]}
+        >
           You are currently: {isSafe ? "Safe ✅" : "In Danger ⚠️"}
         </Text>
       </View>
@@ -417,20 +458,22 @@ export default function Index() {
           ))}
         </MapView>
       ) : (
-        <Text style={styles.permissionText}>Requesting location permission...</Text>
+        <Text style={styles.permissionText}>
+          Requesting location permission...
+        </Text>
       )}
 
       {/* Report Button */}
       <Link href="/reportSubmit/report" style={styles.button}>
-        <Text style={styles.buttonText}>Go to Report</Text>  
+        <Text style={styles.buttonText}>Go to Report</Text>
       </Link>
 
-      {/* Emergency Button → now opens popup */}
+      {/* Emergency Button → opens popup */}
       <TouchableOpacity
         style={styles.Redbutton}
         onPress={() => setModalVisible(true)}
       >
-        <Text style={styles.buttonText}>Emergency Button</Text>  
+        <Text style={styles.buttonText}>Emergency Button</Text>
       </TouchableOpacity>
 
       {/* Emergency Popup */}
@@ -442,13 +485,10 @@ export default function Index() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitleRed}>🚨 Emergency Alert</Text>
-            {/* <Text style={styles.modalText}>
-              This is your emergency popup screen. You can add actions like calling
-              emergency services, sending alerts, etc.
-            </Text> */}
+            <Text style={styles.modalTitleRed}> Emergency Aid 🚨</Text>
+
             <Text style={styles.modalText}>
-                    Please select the type of emergency:
+              Please select the type of emergency:
             </Text>
 
             <Picker
@@ -456,7 +496,7 @@ export default function Index() {
               style={styles.picker}
               onValueChange={(itemValue) => setSelectedEmergency(itemValue)}
             >
-              <Picker.Item label="Select Emergency" value="" />
+              <Picker.Item label="Select Emergency " value="" />
               <Picker.Item label="Earthquakes" value="Earthquakes" />
               <Picker.Item label="Tsunamis" value="Tsunamis" />
               <Picker.Item label="Landslides" value="Landslides" />
@@ -471,9 +511,15 @@ export default function Index() {
               </Text>
             ) : null}
 
-
             <TouchableOpacity
               style={styles.closeButton}
+              onPress={handleSaveEmergency}
+            >
+              <Text style={styles.buttonText}>Submit</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.closeButton, { marginTop: 10, backgroundColor: "gray" }]}
               onPress={() => setModalVisible(false)}
             >
               <Text style={styles.buttonText}>Close</Text>
@@ -486,11 +532,7 @@ export default function Index() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#eef2f5",
-    padding: 16,
-  },
+  container: { flex: 1, backgroundColor: "#eef2f5", padding: 16 },
   header: {
     backgroundColor: "#fff",
     padding: 16,
@@ -503,23 +545,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     alignItems: "center",
   },
-  title: {
-    fontSize: 26,
-    fontWeight: "bold",
-    color: "#222",
-  },
-  subtitle: {
-    fontSize: 18,
-    marginTop: 8,
-  },
-  safeText: {
-    color: "green",
-    fontWeight: "600",
-  },
-  dangerText: {
-    color: "red",
-    fontWeight: "700",
-  },
+  title: { fontSize: 26, fontWeight: "bold", color: "#222" },
+  subtitle: { fontSize: 18, marginTop: 8 },
+  safeText: { color: "green", fontWeight: "600" },
+  dangerText: { color: "red", fontWeight: "700" },
   map: {
     width: "100%",
     height: 400,
@@ -540,12 +569,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     textAlign: "center",
   },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-    textAlign: "center",
-  },
+  buttonText: { color: "#fff", fontSize: 16, fontWeight: "bold" ,textAlign: "center"},
   Redbutton: {
     backgroundColor: "#eb4949ff",
     paddingVertical: 12,
@@ -567,24 +591,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
   },
-  modalTitle: { fontSize: 20, fontWeight: "bold", marginBottom: 10 },
-  modalTitleRed: { fontSize: 20, fontWeight: "bold", marginBottom: 10 , color: 'red' },
-  modalText: { fontSize: 16, textAlign: "center", marginBottom: 20 },
+  modalTitleRed: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 10,
+    color: "red",
+  },
+  modalText: { fontSize: 16, textAlign: "center", marginBottom: 20, color: "black" },
   closeButton: {
     backgroundColor: "black",
     padding: 10,
     borderRadius: 8,
     alignItems: "center",
+    width: "100%",
   },
-  picker: {
-    height: 50,
-    width: 250,
-    marginBottom: 15,
-  },
-  selectedText: {
-    fontSize: 16,
-    marginBottom: 10,
-    color: "blue",
-  },
-
+  picker: { height: 50, width: 250, marginBottom: 15, color: "black" },
+  selectedText: { fontSize: 16, marginBottom: 10, color: "blue" },
 });
