@@ -24,7 +24,17 @@
           "apiKey": "AIzaSyBuKrghtMt7e6xdr3TLiGhVZNuqTFTgMXk"
         }
       },
-      "package": "com.anonymous.RebuildHub"
+      "package": "com.anonymous.RebuildHub",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "ios": {
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app needs access to location to report damage incidents.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location to report damage incidents."
+      }
     },
     "web": {
       "bundler": "metro",
