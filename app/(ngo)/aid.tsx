@@ -45,7 +45,7 @@ interface AidRequestForm {
 
 interface AidRequest extends AidRequestForm {
   id: string;
-  status: 'Requested' | 'Cancelled' | 'In Progress' | 'Completed' | 'Delivered';
+  status: 'Requested' | 'Cancelled' | 'In Progress' | 'Delivered';
   createdAt?: any;
   updatedAt?: any;
   userId?: string;
@@ -122,7 +122,6 @@ export default function NgoAidScreen() {
     switch (status) {
       case 'Requested': return '#2196F3';
       case 'In Progress': return '#FF9800';
-      case 'Completed': return '#4CAF50';
       case 'Delivered': return '#2E7D32';
       case 'Cancelled': return '#F44336';
       default: return '#666';
@@ -187,15 +186,6 @@ export default function NgoAidScreen() {
             </TouchableOpacity>
           );
         case 'In Progress':
-          return (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.completedButton]}
-              onPress={() => updateRequestStatus(item.id, 'Completed')}
-            >
-              <Text style={styles.actionButtonText}>Completed</Text>
-            </TouchableOpacity>
-          );
-        case 'Completed':
           return (
             <TouchableOpacity
               style={[styles.actionButton, styles.deliveredButton]}
@@ -312,17 +302,6 @@ export default function NgoAidScreen() {
           </Text>
         </TouchableOpacity>
         
-        <TouchableOpacity 
-          style={[styles.statItem, statusFilter === 'Completed' && styles.statItemActive]}
-          onPress={() => setStatusFilter('Completed')}
-        >
-          <Text style={[styles.statNumber, statusFilter === 'Completed' && styles.statNumberActive]}>
-            {requests.filter(r => r.status === 'Completed').length}
-          </Text>
-          <Text style={[styles.statLabel, statusFilter === 'Completed' && styles.statLabelActive]}>
-            Completed
-          </Text>
-        </TouchableOpacity>
         
         <TouchableOpacity 
           style={[styles.statItem, statusFilter === 'Delivered' && styles.statItemActive]}
@@ -484,17 +463,6 @@ export default function NgoAidScreen() {
                     </TouchableOpacity>
                   )}
                   {selectedRequest.status === 'In Progress' && (
-                    <TouchableOpacity
-                      style={[styles.statusButton, styles.completedButton]}
-                      onPress={() => {
-                        updateRequestStatus(selectedRequest.id, 'Completed');
-                        setIsDetailOpen(false);
-                      }}
-                    >
-                      <Text style={styles.statusButtonText}>Mark Completed</Text>
-                    </TouchableOpacity>
-                  )}
-                  {selectedRequest.status === 'Completed' && (
                     <TouchableOpacity
                       style={[styles.statusButton, styles.deliveredButton]}
                       onPress={() => {

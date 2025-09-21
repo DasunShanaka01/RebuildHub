@@ -53,7 +53,7 @@ interface AidRequestForm {
 
 interface AidRequest extends AidRequestForm {
   id: string;
-  status: 'Requested' | 'Cancelled' | 'In Progress' | 'Completed' | 'Delivered';
+  status: 'Requested' | 'Cancelled' | 'In Progress' | 'Delivered';
   createdAt?: any;
   updatedAt?: any;
   userId?: string;

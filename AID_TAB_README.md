@@ -91,7 +91,7 @@ interface AidRequest {
   };
   urgencyLevel: 'Low' | 'Medium' | 'High';
   additionalNotes: string;
-  status: 'Requested';
+  status: 'Requested' | 'In Progress' | 'Delivered' | 'Cancelled';
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
