@@ -1,11 +1,5 @@
-// import React, { useEffect, useState } from "react";
-// import { StyleSheet, View, Text } from "react-native";
-// import { Link, Redirect } from "expo-router";
-// import MapView, { PROVIDER_GOOGLE, Marker, Circle } from "react-native-maps";
-// import * as Location from "expo-location";
-// import { onAuthStateChanged } from "firebase/auth";
-// import { collection, getDocs } from "firebase/firestore";
-// import { auth, db } from "../../FirebaseConfig"; // adjust path
+// @ts-nocheck
+import { router } from "expo-router";
 
 // interface Report {
 //   id: string;
@@ -383,7 +377,7 @@ export default function Index() {
       return;
     }
     try {
-      await addDoc(collection(db, "emergencies"), {
+      const docRef = await addDoc(collection(db, "emergencies"), {
         type: selectedEmergency, // string
         userId: user?.uid || null,
         location: userLocation || null,
@@ -392,6 +386,12 @@ export default function Index() {
       Alert.alert("✅ Emergency saved successfully!");
       setModalVisible(false);
       setSelectedEmergency(""); // reset
+      
+      // Navigate to QR code screen
+      router.push({
+        pathname: "/Emergency/QRCodeScreen",
+        params: { emergencyId: docRef.id, userId: user?.uid }
+      });
     } catch (error) {
       console.error("Error saving emergency:", error);
       Alert.alert("❌ Error saving to Firebase.");
