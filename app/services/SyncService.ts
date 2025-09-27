@@ -373,5 +373,8 @@ class SyncService {
   };
 }
 
-// Export singleton instance
+// Create singleton instance
 export const syncService = new SyncService();
+
+// Export the class as default
+export default SyncService;

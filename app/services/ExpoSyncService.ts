@@ -40,3 +40,10 @@ export const unregisterBackgroundSync = async () => {
     console.error('Failed to unregister background sync:', error);
   }
 };
+
+const ExpoSyncService = {
+  registerBackgroundSync,
+  unregisterBackgroundSync,
+};
+
+export default ExpoSyncService;

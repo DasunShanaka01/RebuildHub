@@ -26,7 +26,7 @@ interface SyncProviderProps {
   children: React.ReactNode;
 }
 
-export const SyncProvider: React.FC<SyncProviderProps> = ({ children }) => {
+const SyncProvider: React.FC<SyncProviderProps> = ({ children }) => {
   const [pendingReports, setPendingReports] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
@@ -186,3 +186,5 @@ export const SyncProvider: React.FC<SyncProviderProps> = ({ children }) => {
     </SyncContext.Provider>
   );
 };
+
+export default SyncProvider;
