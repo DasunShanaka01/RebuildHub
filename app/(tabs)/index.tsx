@@ -252,10 +252,10 @@ import {
   Alert,
 } from "react-native";
 import { Link, Redirect } from "expo-router";
-import MapView, { PROVIDER_GOOGLE, Marker, Circle } from "react-native-maps";
+import MapView, { PROVIDER_GOOGLE, Marker, Circle, Callout } from "react-native-maps";
 import * as Location from "expo-location";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 import { auth, db } from "../../FirebaseConfig"; // adjust path
 import { Picker } from "@react-native-picker/picker";
 
@@ -275,8 +275,6 @@ export default function Index() {
   } | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [isSafe, setIsSafe] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [selectedEmergency, setSelectedEmergency] = useState<string>("");
 
   // Check Firebase auth session
   useEffect(() => {
@@ -303,22 +301,49 @@ export default function Index() {
     })();
   }, []);
 
-  // Fetch reports from Firestore
+  // Fetch reports from Firestore (real-time) and normalize data
   useEffect(() => {
-    const fetchReports = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, "reports"));
-        const reportsData: Report[] = querySnapshot.docs.map((doc) => ({
-          id: doc.id,
-          location: doc.data().location,
-          severity: doc.data().severity,
-        }));
+    const q = query(collection(db, "reportData"));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const reportsData: Report[] = snapshot.docs
+          .map((d) => {
+            const data: any = d.data();
+            // Handle location stored as GeoPoint or as { latitude, longitude }
+            let latitude: number | undefined;
+            let longitude: number | undefined;
+            if (data?.location) {
+              if (typeof data.location.latitude === "number" && typeof data.location.longitude === "number") {
+                latitude = data.location.latitude;
+                longitude = data.location.longitude;
+              } else if (typeof data.location._latitude === "number" && typeof data.location._longitude === "number") {
+                // Some SDKs expose GeoPoint fields as _latitude/_longitude when serialized
+                latitude = data.location._latitude;
+                longitude = data.location._longitude;
+              } else if (data.location?.latitude !== undefined && data.location?.longitude !== undefined) {
+                latitude = Number(data.location.latitude);
+                longitude = Number(data.location.longitude);
+              }
+            }
+            const locOk = typeof latitude === "number" && typeof longitude === "number";
+            const sevRaw = String(data?.severity ?? "medium");
+            const sev = (sevRaw.toLowerCase() as Report["severity"]) || "medium";
+            if (!locOk) return null;
+            return {
+              id: d.id,
+              location: { latitude: latitude as number, longitude: longitude as number },
+              severity: sev,
+            } as Report;
+          })
+          .filter(Boolean) as Report[];
         setReports(reportsData);
-      } catch (error) {
+      },
+      (error) => {
         console.error("Error fetching reports:", error);
       }
-    };
-    fetchReports();
+    );
+    return unsubscribe;
   }, []);
 
   // Check if user is in danger zone
@@ -344,7 +369,40 @@ export default function Index() {
     });
 
     setIsSafe(!inDanger);
+
+    // Track high severity zones the user is inside
+    const insideHigh = reports
+      .filter((r) => r.severity === "high")
+      .filter((r) => {
+        const distance = getDistance(
+          userLocation.latitude,
+          userLocation.longitude,
+          r.location.latitude,
+          r.location.longitude
+        );
+        return distance <= 1500;
+      })
+      .map((r) => r.location);
+    setHighDangerZones(insideHigh);
   }, [userLocation, reports]);
+
+  // Blink/pulse animation for high danger zones
+  useEffect(() => {
+    if (highDangerZones.length === 0) return;
+    let mounted = true;
+    let t = 0;
+    const id = setInterval(() => {
+      if (!mounted) return;
+      // Smooth oscillation between 0.25 and 0.6 alpha
+      t += 0.12;
+      const a = 0.25 + (Math.sin(t) * 0.35 + 0.35) / 2; // ~0.25..0.6
+      setPulseAlpha(Number(a.toFixed(3)));
+    }, 60);
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
+  }, [highDangerZones.length]);
 
   if (loading) return null;
   if (!user) return <Redirect href="/login" />;
@@ -368,34 +426,6 @@ export default function Index() {
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
     return R * c;
-  };
-
-  // 👉 Save selected emergency to Firestore
-  const handleSaveEmergency = async () => {
-    if (!selectedEmergency) {
-      Alert.alert("⚠️ Please select an emergency type first.");
-      return;
-    }
-    try {
-      const docRef = await addDoc(collection(db, "emergencies"), {
-        type: selectedEmergency, // string
-        userId: user?.uid || null,
-        location: userLocation || null,
-        createdAt: serverTimestamp(),
-      });
-      Alert.alert("✅ Emergency saved successfully!");
-      setModalVisible(false);
-      setSelectedEmergency(""); // reset
-      
-      // Navigate to QR code screen
-      router.push({
-        pathname: "/Emergency/QRCodeScreen",
-        params: { emergencyId: docRef.id, userId: user?.uid }
-      });
-    } catch (error) {
-      console.error("Error saving emergency:", error);
-      Alert.alert("❌ Error saving to Firebase.");
-    }
   };
 
   return (
@@ -423,38 +453,66 @@ export default function Index() {
           minZoomLevel={2}
           maxZoomLevel={20}
         >
-          {reports.map((report) => (
-            <React.Fragment key={report.id}>
-              <Marker
-                coordinate={report.location}
-                title={`Report (${report.severity})`}
-              />
-              <Circle
-                center={report.location}
-                radius={
-                  report.severity === "high"
-                    ? 1500
-                    : report.severity === "medium"
-                    ? 1000
-                    : 500
-                }
-                fillColor={
-                  report.severity === "high"
-                    ? "rgba(255,0,0,0.3)"
-                    : report.severity === "medium"
-                    ? "rgba(255,165,0,0.3)"
-                    : "rgba(0,128,0,0.3)"
-                }
-                strokeColor={
-                  report.severity === "high"
-                    ? "red"
-                    : report.severity === "medium"
-                    ? "orange"
-                    : "green"
-                }
-                strokeWidth={2}
-              />
-            </React.Fragment>
+          {reports.map((report) => {
+            const colors = getSeverityColors(report.severity);
+            return (
+              <React.Fragment key={report.id}>
+                <Marker coordinate={report.location} anchor={{ x: 0.5, y: 1 }} tracksViewChanges={false}>
+                  <View style={styles.markerContainer}>
+                    <View style={styles.markerShadow} />
+                    <View style={[styles.markerPin, { backgroundColor: colors.main, borderColor: colors.dark }]}>
+                      <Text style={styles.markerLabel}>
+                        {report.severity === "high" ? "H" : report.severity === "medium" ? "M" : "L"}
+                      </Text>
+                    </View>
+                    <View style={[styles.markerTail, { borderTopColor: colors.main }]} />
+                    <View style={[styles.markerDot, { backgroundColor: colors.dark }]} />
+                  </View>
+                  <Callout tooltip>
+                    <View style={styles.calloutBox}>
+                      <Text style={styles.calloutTitle}>Severity: {report.severity.toUpperCase()}</Text>
+                      <Text style={styles.calloutSub}>{`lat ${report.location.latitude.toFixed(4)}, lng ${report.location.longitude.toFixed(4)}`}</Text>
+                    </View>
+                  </Callout>
+                </Marker>
+                <Circle
+                  center={report.location}
+                  radius={
+                    report.severity === "high"
+                      ? 1500
+                      : report.severity === "medium"
+                      ? 1000
+                      : 500
+                  }
+                  fillColor={
+                    report.severity === "high"
+                      ? "rgba(255,0,0,0.3)"
+                      : report.severity === "medium"
+                      ? "rgba(255,165,0,0.3)"
+                      : "rgba(0,128,0,0.3)"
+                  }
+                  strokeColor={
+                    report.severity === "high"
+                      ? "red"
+                      : report.severity === "medium"
+                      ? "orange"
+                      : "green"
+                  }
+                  strokeWidth={2}
+                />
+              </React.Fragment>
+            );
+          })}
+          {/* Blinking circles for high-severity zones that include the user */}
+          {highDangerZones.map((center, idx) => (
+            <Circle
+              key={`hz-${idx}`}
+              center={center}
+              radius={1500}
+              fillColor={`rgba(255,0,0,${pulseAlpha})`}
+              strokeColor={"red"}
+              strokeWidth={2}
+            />
           ))}
         </MapView>
       ) : (
@@ -578,33 +636,4 @@ const styles = StyleSheet.create({
     marginTop: 16,
     textAlign: "center",
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalContent: {
-    width: "80%",
-    backgroundColor: "white",
-    padding: 20,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  modalTitleRed: {
-    fontSize: 20,
-    fontWeight: "bold",
-    marginBottom: 10,
-    color: "red",
-  },
-  modalText: { fontSize: 16, textAlign: "center", marginBottom: 20, color: "black" },
-  closeButton: {
-    backgroundColor: "black",
-    padding: 10,
-    borderRadius: 8,
-    alignItems: "center",
-    width: "100%",
-  },
-  picker: { height: 50, width: 250, marginBottom: 15, color: "black" },
-  selectedText: { fontSize: 16, marginBottom: 10, color: "blue" },
 });
