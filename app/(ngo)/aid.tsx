@@ -49,6 +49,7 @@ interface AidRequest extends AidRequestForm {
   createdAt?: any;
   updatedAt?: any;
   userId?: string;
+  rating?: number;
 }
 
 export default function NgoAidScreen() {
@@ -244,6 +245,11 @@ export default function NgoAidScreen() {
           <View style={[styles.badge, { backgroundColor: getStatusColor(item.status) }]}>
             <Text style={styles.badgeText}>{item.status}</Text>
           </View>
+          {typeof item.rating === 'number' && (
+            <View style={[styles.badge, { backgroundColor: '#FFC107' }]}>
+              <Text style={styles.badgeText}>★ {item.rating.toFixed(1)}</Text>
+            </View>
+          )}
         </View>
         <Text style={styles.cardMeta}>NIC: {item.nicNumber} • Contact: {item.contactNumber} • GPS: {item.gpsLocation || 'N/A'}</Text>
         <Text style={styles.cardMeta}>Needs: {['food','water','medicine','shelter']
@@ -423,6 +429,24 @@ export default function NgoAidScreen() {
                   <Text style={[styles.detailValue, { marginLeft: 8 }]}>{selectedRequest.status}</Text>
                 </View>
               </View>
+
+              {typeof selectedRequest.rating === 'number' && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>User Rating</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {[1,2,3,4,5].map((star) => (
+                      <FontAwesome
+                        key={star}
+                        name={(selectedRequest.rating ?? 0) >= star ? 'star' : 'star-o'}
+                        size={20}
+                        color={(selectedRequest.rating ?? 0) >= star ? '#FFC107' : '#999'}
+                        style={{ marginRight: 4 }}
+                      />
+                    ))}
+                    <Text style={[styles.detailValue, { marginLeft: 8 }]}>{selectedRequest.rating?.toFixed(1)} / 5</Text>
+                  </View>
+                </View>
+              )}
               
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Aid Types Needed</Text>

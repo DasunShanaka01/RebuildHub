@@ -57,6 +57,7 @@ interface AidRequest extends AidRequestForm {
   createdAt?: any;
   updatedAt?: any;
   userId?: string;
+  rating?: number;
 }
 
 export default function AidScreen() {
@@ -87,6 +88,7 @@ export default function AidScreen() {
   const [unsubscribeRequests, setUnsubscribeRequests] = useState<(() => void) | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<AidRequest | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [pendingRating, setPendingRating] = useState<number>(0);
   const mapRef = useRef<MapView | null>(null);
 
   useEffect(() => {
@@ -294,6 +296,7 @@ export default function AidScreen() {
 
   const onPressView = (request: AidRequest) => {
     setSelectedRequest(request);
+    setPendingRating(request.rating || 0);
     setIsDetailOpen(true);
   };
 
@@ -315,6 +318,24 @@ export default function AidScreen() {
         }},
       ]
     );
+  };
+
+  const saveRating = async (requestId: string, rating: number) => {
+    try {
+      // Prevent updates if rating already exists
+      if (selectedRequest?.rating && selectedRequest.rating > 0) {
+        Alert.alert('Already rated', 'You have already submitted a rating for this request.');
+        return;
+      }
+      await updateDoc(doc(db, 'aid_requests', requestId), {
+        rating,
+        updatedAt: serverTimestamp(),
+      });
+      setSelectedRequest((prev) => prev ? { ...prev, rating } : prev);
+      Alert.alert('Thanks!', 'Your feedback has been recorded.');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save rating. Please try again.');
+    }
   };
 
   const renderRequestItem = ({ item }: { item: AidRequest }) => {
@@ -342,6 +363,11 @@ export default function AidScreen() {
           <View style={[styles.badge, styles.statusBadge]}>
             <Text style={styles.badgeText}>{item.status}</Text>
           </View>
+          {typeof item.rating === 'number' && (
+            <View style={[styles.badge, { backgroundColor: '#FFC107' }]}>
+              <Text style={styles.badgeText}>★ {item.rating.toFixed(1)}</Text>
+            </View>
+          )}
         </View>
         <Text style={styles.cardMeta}>NIC: {item.nicNumber} • Contact: {item.contactNumber} • GPS: {item.gpsLocation || 'N/A'}</Text>
         <Text style={styles.cardMeta}>Needs: {['food','water','medicine','shelter']
@@ -618,6 +644,52 @@ export default function AidScreen() {
                   <Text style={styles.detailLabel}>Status</Text>
                   <Text style={styles.detailValue}>{selectedRequest.status}</Text>
                 </View>
+
+              {selectedRequest.status === 'Delivered' && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Rate Your Experience</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {[1,2,3,4,5].map((star) => {
+                      const interactive = !(selectedRequest.rating && selectedRequest.rating > 0);
+                      const isFilled = (selectedRequest.rating && selectedRequest.rating > 0)
+                        ? (selectedRequest.rating >= star)
+                        : (pendingRating >= star);
+                      const StarComp = (
+                        <FontAwesome
+                          name={isFilled ? 'star' : 'star-o'}
+                          size={24}
+                          color={isFilled ? '#FFC107' : '#999'}
+                        />
+                      );
+                      return interactive ? (
+                        <TouchableOpacity
+                          key={star}
+                          onPress={() => setPendingRating(star)}
+                          style={{ marginRight: 6 }}
+                        >
+                          {StarComp}
+                        </TouchableOpacity>
+                      ) : (
+                        <View key={star} style={{ marginRight: 6 }}>
+                          {StarComp}
+                        </View>
+                      );
+                    })}
+                    {!(selectedRequest.rating && selectedRequest.rating > 0) && (
+                      <TouchableOpacity
+                        onPress={() => saveRating(selectedRequest.id, pendingRating)}
+                        style={[styles.submitButton, { marginLeft: 12, paddingVertical: 8, paddingHorizontal: 12 }]}
+                        disabled={pendingRating === 0}
+                      >
+                        <Text style={styles.submitButtonText}>Submit</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {selectedRequest.rating ? (
+                    <Text style={{ color: '#666', marginTop: 6 }}>Your rating: {selectedRequest.rating} / 5</Text>
+                  ) : null}
+                </View>
+              )}
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Needs</Text>
                   <Text style={styles.detailValue}>
