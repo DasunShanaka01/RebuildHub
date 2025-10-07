@@ -10,6 +10,7 @@ import {
   Modal,
   ScrollView,
   Animated,
+  Linking,
 } from 'react-native';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
@@ -185,6 +186,35 @@ export default function NgoAidScreen() {
     );
   };
 
+  const parseGps = (gps: string): { lat: number; lng: number } | null => {
+    if (!gps) return null;
+    const parts = gps.split(',').map((p) => p.trim());
+    if (parts.length !== 2) return null;
+    const lat = Number(parts[0]);
+    const lng = Number(parts[1]);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+    return { lat, lng };
+  };
+
+  const openDirections = async (gpsLocation: string) => {
+    const coords = parseGps(gpsLocation);
+    if (!coords) {
+      Alert.alert('Invalid location', 'No valid GPS coordinates found for this request.');
+      return;
+    }
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}&travelmode=driving`;
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('Unavailable', 'Cannot open maps on this device.');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to open directions.');
+    }
+  };
+
   const onPressView = (request: AidRequest) => {
     setSelectedRequest(request);
     setIsDetailOpen(true);
@@ -291,12 +321,12 @@ export default function NgoAidScreen() {
             <TouchableOpacity 
               onPress={(e) => {
                 e.stopPropagation();
-                updateRequestStatus(item.id, 'Delivered');
+                openDirections(item.gpsLocation);
               }} 
               style={styles.actionButtonDeliver}
             >
-              <Ionicons name="checkmark-circle" size={16} color="#fff" />
-              <Text style={styles.actionButtonText}>Deliver</Text>
+              <Ionicons name="navigate" size={16} color="#fff" />
+              <Text style={styles.actionButtonText}>Get Directions</Text>
             </TouchableOpacity>
           )}
           {item.status === 'Delivered' && (
@@ -659,13 +689,12 @@ export default function NgoAidScreen() {
                     <TouchableOpacity
                       style={[styles.primaryActionButton, { backgroundColor: '#10B981' }]}
                       onPress={() => {
-                        updateRequestStatus(selectedRequest.id, 'Delivered');
-                        setIsDetailOpen(false);
+                        openDirections(selectedRequest.gpsLocation);
                       }}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                      <Text style={styles.primaryActionButtonText}>Mark as Delivered</Text>
+                      <Ionicons name="navigate" size={20} color="#fff" />
+                      <Text style={styles.primaryActionButtonText}>Get Directions</Text>
                     </TouchableOpacity>
                   )}
 
