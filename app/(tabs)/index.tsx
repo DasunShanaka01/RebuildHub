@@ -14,6 +14,8 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { auth, db } from "../../FirebaseConfig";
 import { Picker } from "@react-native-picker/picker";
+import { FaAngleDown } from 'react-icons/fa';
+import Icon from 'react-native-vector-icons/FontAwesome';
 
 interface Report {
   id: string;
@@ -342,19 +344,22 @@ export default function Index() {
               Please select the type of emergency:
             </Text>
 
-            <Picker
-              selectedValue={selectedEmergency}
-              style={styles.picker}
-              onValueChange={(itemValue) => setSelectedEmergency(itemValue)}
-            >
-              <Picker.Item label="Select Emergency " value="" />
-              <Picker.Item label="Earthquakes" value="Earthquakes" />
-              <Picker.Item label="Tsunamis" value="Tsunamis" />
-              <Picker.Item label="Landslides" value="Landslides" />
-              <Picker.Item label="Floods" value="Floods" />
-              <Picker.Item label="Droughts" value="Droughts" />
-              <Picker.Item label="Wildfires" value="Wildfires" />
-            </Picker>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={selectedEmergency}
+                style={styles.picker}
+                onValueChange={(itemValue) => setSelectedEmergency(itemValue)}
+              >
+                <Picker.Item label="Select Emergency " value="" />
+                <Picker.Item label="Earthquakes" value="Earthquakes" />
+                <Picker.Item label="Tsunamis" value="Tsunamis" />
+                <Picker.Item label="Landslides" value="Landslides" />
+                <Picker.Item label="Floods" value="Floods" />
+                <Picker.Item label="Droughts" value="Droughts" />
+                <Picker.Item label="Wildfires" value="Wildfires" />
+              </Picker>
+              <Icon name="angle-down" size={20} color="#000" style={styles.pickerIcon} />
+            </View>
 
             {selectedEmergency ? (
               <Text style={styles.selectedText}>
@@ -454,10 +459,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 16,
     textAlign: "center",
+    color: "#333",
+  },
+  pickerContainer: {
+    position: 'relative',
+    marginBottom: 16,
   },
   picker: {
     height: 50,
     marginBottom: 16,
+    color: "#333",
+  },
+  pickerIcon: {
+    position: 'absolute',
+    right: 12,
+    top: 15,
+    zIndex: 1,
   },
   selectedText: {
     fontSize: 14,

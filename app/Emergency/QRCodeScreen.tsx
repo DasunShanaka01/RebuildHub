@@ -181,3 +181,74 @@ const styles = StyleSheet.create({
         marginBottom: 5,
     },
 });
+
+
+
+// import React from 'react';
+// import { View, Text, StyleSheet } from 'react-native';
+// import QRCode from 'react-native-qrcode-svg';
+
+// interface QRCodeScreenProps {
+//   emergencyData: {
+//     type: string;
+//     timestamp: string;
+//     location?: {
+//       latitude: number;
+//       longitude: number;
+//     };
+//   };
+// }
+
+// const QRCodeScreen: React.FC<QRCodeScreenProps> = ({ emergencyData }) => {
+//   const qrData = JSON.stringify(emergencyData);
+
+//   return (
+//     <View style={styles.container}>
+//       <Text style={styles.title}>Emergency QR Code</Text>
+//       <View style={styles.qrContainer}>
+//         <QRCode
+//           value={qrData}
+//           size={250}
+//         />
+//       </View>
+//       <Text style={styles.info}>Emergency Type: {emergencyData.type}</Text>
+//       <Text style={styles.info}>Time: {emergencyData.timestamp}</Text>
+//     </View>
+//   );
+// };
+
+// const styles = StyleSheet.create({
+//   container: {
+//     flex: 1,
+//     alignItems: 'center',
+//     justifyContent: 'center',
+//     backgroundColor: '#fff',
+//     padding: 20,
+//   },
+//   title: {
+//     fontSize: 24,
+//     fontWeight: 'bold',
+//     marginBottom: 30,
+//   },
+//   qrContainer: {
+//     padding: 20,
+//     backgroundColor: '#fff',
+//     borderRadius: 10,
+//     shadowColor: '#000',
+//     shadowOffset: {
+//       width: 0,
+//       height: 2,
+//     },
+//     shadowOpacity: 0.25,
+//     shadowRadius: 3.84,
+//     elevation: 5,
+//     marginBottom: 20,
+//   },
+//   info: {
+//     fontSize: 16,
+//     marginTop: 10,
+//     color: '#666',
+//   },
+// });
+
+// export default QRCodeScreen;
