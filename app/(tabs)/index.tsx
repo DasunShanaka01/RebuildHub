@@ -1,3 +1,7 @@
+
+
+import { useRouter } from 'expo-router';
+
 import React, { useEffect, useState } from "react";
 import {
   StyleSheet,
@@ -11,9 +15,10 @@ import { Link, Redirect } from "expo-router";
 import MapView, { PROVIDER_GOOGLE, Marker, Circle, Callout } from "react-native-maps";
 import * as Location from "expo-location";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, onSnapshot, query } from "firebase/firestore";
+import { collection, onSnapshot, query ,addDoc,serverTimestamp} from "firebase/firestore";
 import { auth, db } from "../../FirebaseConfig";
 import { Picker } from "@react-native-picker/picker";
+import Icon from "react-native-vector-icons/FontAwesome";
 
 interface Report {
   id: string;
@@ -35,6 +40,7 @@ export default function Index() {
   const [selectedEmergency, setSelectedEmergency] = useState("");
   const [highDangerZones, setHighDangerZones] = useState<{ latitude: number; longitude: number }[]>([]);
   const [pulseAlpha, setPulseAlpha] = useState(0.35);
+  const router = useRouter();
 
   // Check Firebase auth session
   useEffect(() => {
@@ -164,26 +170,56 @@ export default function Index() {
     };
   }, [highDangerZones.length]);
 
-  // Handle emergency submission
-  const handleSaveEmergency = () => {
+  // // Handle emergency submission
+  // const handleSaveEmergency = () => {
+  //   if (!selectedEmergency) {
+  //     Alert.alert("Error", "Please select an emergency type");
+  //     return;
+  //   }
+    
+  //   Alert.alert(
+  //     "Emergency Submitted",
+  //     `Emergency type: ${selectedEmergency} has been reported. Help is on the way!`,
+  //     [
+  //       {
+  //         text: "OK",
+  //         onPress: () => {
+  //           setModalVisible(false);
+  //           setSelectedEmergency("");
+  //         }
+  //       }
+  //     ]
+  //   );
+  // };
+
+
+   const handleEmergencySubmit = async () => {
     if (!selectedEmergency) {
       Alert.alert("Error", "Please select an emergency type");
       return;
     }
-    
-    Alert.alert(
-      "Emergency Submitted",
-      `Emergency type: ${selectedEmergency} has been reported. Help is on the way!`,
-      [
-        {
-          text: "OK",
-          onPress: () => {
-            setModalVisible(false);
-            setSelectedEmergency("");
-          }
-        }
-      ]
-    );
+
+    try {
+      const docRef = await addDoc(collection(db, "emergencies"), {
+        type: selectedEmergency,
+        userId: user?.uid,
+        location: userLocation,
+        createdAt: serverTimestamp(),
+        status: 'pending'
+      });
+
+      setModalVisible(false);
+      setSelectedEmergency("");
+      
+      // Redirect to QR code screen with the emergency ID
+      router.push({
+        pathname: "/Emergency/QRCodeScreen",
+        params: { emergencyId: docRef.id }
+      });
+    } catch (error) {
+      console.error("Error submitting emergency:", error);
+      Alert.alert("Error", "Failed to submit emergency");
+    }
   };
 
   const getSeverityColors = (severity: Report["severity"]) => {
@@ -341,7 +377,7 @@ export default function Index() {
             <Text style={styles.modalText}>
               Please select the type of emergency:
             </Text>
-
+{/* 
             <Picker
               selectedValue={selectedEmergency}
               style={styles.picker}
@@ -354,7 +390,25 @@ export default function Index() {
               <Picker.Item label="Floods" value="Floods" />
               <Picker.Item label="Droughts" value="Droughts" />
               <Picker.Item label="Wildfires" value="Wildfires" />
-            </Picker>
+            </Picker> */}
+
+
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={selectedEmergency}
+                style={styles.picker}
+                onValueChange={(itemValue) => setSelectedEmergency(itemValue)}
+              >
+                <Picker.Item label="Select Emergency " value="" />
+                <Picker.Item label="Earthquakes" value="Earthquakes" />
+                <Picker.Item label="Tsunamis" value="Tsunamis" />
+                <Picker.Item label="Landslides" value="Landslides" />
+                <Picker.Item label="Floods" value="Floods" />
+                <Picker.Item label="Droughts" value="Droughts" />
+                <Picker.Item label="Wildfires" value="Wildfires" />
+              </Picker>
+              <Icon name="angle-down" size={20} color="#000" style={styles.pickerIcon} />
+            </View>
 
             {selectedEmergency ? (
               <Text style={styles.selectedText}>
@@ -364,7 +418,7 @@ export default function Index() {
 
             <TouchableOpacity
               style={styles.closeButton}
-              onPress={handleSaveEmergency}
+              onPress={handleEmergencySubmit}
             >
               <Text style={styles.buttonText}>Submit</Text>
             </TouchableOpacity>
@@ -381,6 +435,10 @@ export default function Index() {
     </View>
   );
 }
+
+
+
+
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#eef2f5", padding: 16 },
@@ -454,10 +512,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 16,
     textAlign: "center",
+    color: "#333",
   },
   picker: {
     height: 50,
     marginBottom: 16,
+    color: "#333"
   },
   selectedText: {
     fontSize: 14,
@@ -531,5 +591,16 @@ const styles = StyleSheet.create({
   calloutSub: {
     fontSize: 12,
     color: "#555",
+  },
+
+  pickerContainer: {
+    position: 'relative',
+    marginBottom: 16,
+  },
+  pickerIcon: {
+    position: 'absolute',
+    right: 12,
+    top: 15,
+    zIndex: 1,
   },
 });
