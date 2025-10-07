@@ -212,10 +212,11 @@ export default function Index() {
       setSelectedEmergency("");
       
       // Redirect to QR code screen with the emergency ID
-      router.push({
-        pathname: "/Emergency/QRCodeScreen",
-        params: { emergencyId: docRef.id }
-      });
+      // router.push({
+      //   pathname: "/Emergency/QRCodeScreen",
+      //   params: { emergencyId: docRef.id }
+      // });
+      Alert.alert("Emergency Submitted", `Your emergency has been reported. Help is on the way! Your emergency ID is ${docRef.id}`);
     } catch (error) {
       console.error("Error submitting emergency:", error);
       Alert.alert("Error", "Failed to submit emergency");
