@@ -51,19 +51,19 @@ export default function QRCodeScreen() {
         return date.toLocaleString();
     };
 
-    const generateQRData = () => {
-        if (!emergencyData) return '';
-        
-        const qrData = {
-            emergencyId,
-            type: emergencyData.type,
-            userId: emergencyData.userId,
-            location: emergencyData.location,
-            createdAt: emergencyData.createdAt ? formatDate(emergencyData.createdAt) : 'N/A'
-        };
 
-        return JSON.stringify(qrData);
+    const generateQRData = () => {
+        if (!emergencyData || !emergencyData.location) return '';
+
+        const { latitude, longitude } = emergencyData.location;
+
+        // Google Maps link (works in any browser or phone)
+        const googleMapsLink = `https://www.google.com/maps?q=${latitude},${longitude}`;
+
+        return googleMapsLink;
     };
+
+
 
     if (loading) {
         return (

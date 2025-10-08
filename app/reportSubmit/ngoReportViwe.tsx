@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Dimensions } from "react-native";
-import { collection, onSnapshot, updateDoc, doc } from "firebase/firestore";
 import { db } from "../../FirebaseConfig";
 import BackButton from '../../components/BackButton';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
+import { collection, onSnapshot, updateDoc, doc, query, orderBy, limit } from "firebase/firestore";
+import { Alert } from 'react-native';
 
 const getSeverityColor = (severity: string) => {
   switch (severity?.toLowerCase()) {
@@ -39,6 +42,8 @@ const getCategoryIcon = (category: string) => {
 export default function NGOReportView() {
   const [reports, setReports] = useState<any[]>([]);
   const [filter, setFilter] = useState<string>('all');
+  const [latestEmergencyId, setLatestEmergencyId] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "reportData"), (snapshot) => {
@@ -63,6 +68,23 @@ export default function NGOReportView() {
       approved: reports.filter(r => r.reportStatus === 'approved').length,
     };
   };
+
+
+   useEffect(() => {
+    const q = query(
+      collection(db, "emergencies"),
+      orderBy("createdAt", "desc"),
+      limit(1)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        setLatestEmergencyId(snapshot.docs[0].id);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const counts = getStatusCounts();
 
@@ -114,7 +136,7 @@ export default function NGOReportView() {
   const renderItem = ({ item }: { item: any }) => (
     <View style={styles.reportCard}>
       <View style={styles.cardHeader}>
-        <View style={styles.headerLeft}>
+        <View style={styles.headerLeftRow}>
           <Text style={styles.categoryIcon}>{getCategoryIcon(item.category)}</Text>
           <View style={styles.headerText}>
             <Text style={styles.categoryText}>{item.category}</Text>
@@ -188,10 +210,41 @@ export default function NGOReportView() {
     <View style={styles.container}>
       <BackButton />
       
-      <View style={styles.header}>
+      {/* <View style={styles.header}>
         <Text style={styles.title}>NGO Dashboard</Text>
         <Text style={styles.subtitle}>Manage disaster reports</Text>
       </View>
+
+      <View>
+        <Text style={styles.title}>Emergency Request</Text>
+        <Text style={styles.subtitle}>notification icon</Text>
+      </View> */}
+      <View style={styles.headerContainer}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.title}>NGO Dashboard</Text>
+            <Text style={styles.subtitle}>Manage disaster reports</Text>
+          </View>
+        <TouchableOpacity 
+          style={styles.notificationButton}
+          onPress={async () => {
+            if (latestEmergencyId) {
+              router.push({
+                pathname: '/Emergency/notification',
+                params: { emergencyId: latestEmergencyId }
+              });
+            } else {
+              Alert.alert("No Emergency", "No emergency requests available");
+            }
+          }}
+        >
+          <Icon name="notifications" size={24} color="#2563EB" />
+          {latestEmergencyId && (
+            <View style={styles.notificationBadge}>
+              <Text style={styles.badgeText}>!</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+        </View>
 
       <View style={styles.filterSection}>
         <TouchableOpacity 
@@ -337,7 +390,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
-  headerLeft: {
+  headerLeftRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
@@ -471,5 +524,37 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "700",
     fontSize: 13,
+  },
+   headerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  notificationButton: {
+    position: 'relative',
+    padding: 8,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 50,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: '#DC2626',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });
