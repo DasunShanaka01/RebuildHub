@@ -31,7 +31,7 @@ import {
 } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import * as Location from 'expo-location';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '@/FirebaseConfig';
 
@@ -90,8 +90,206 @@ export default function AidScreen() {
   const [selectedRequest, setSelectedRequest] = useState<AidRequest | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [pendingRating, setPendingRating] = useState<number>(0);
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
+  const [trackingRequest, setTrackingRequest] = useState<AidRequest | null>(null);
+  const [userLocation, setUserLocation] = useState<{latitude: number, longitude: number} | null>(null);
+  const [ngoLocation, setNgoLocation] = useState<{latitude: number, longitude: number} | null>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<{latitude: number, longitude: number}[]>([]);
+  const [routeInfo, setRouteInfo] = useState<{distance: string, duration: string, steps: any[]} | null>(null);
+  const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
+  const [isUsingFallbackRoute, setIsUsingFallbackRoute] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackRequest, setFeedbackRequest] = useState<AidRequest | null>(null);
+  const [feedbackRating, setFeedbackRating] = useState<number>(0);
   const mapRef = useRef<MapView | null>(null);
+  const trackingMapRef = useRef<MapView | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  // Mock NGO location - in a real app, this would come from your database
+  const NGO_LOCATION = {
+    latitude: 6.9271, // Colombo, Sri Lanka
+    longitude: 79.8612,
+    name: "Emergency Response Center"
+  };
+
+  const calculateRoute = async (start: {latitude: number, longitude: number}, end: {latitude: number, longitude: number}) => {
+    try {
+      // Using Google Directions API for real road routing
+      const API_KEY = 'YOUR_GOOGLE_MAPS_API_KEY'; // Replace with your actual API key
+      const origin = `${start.latitude},${start.longitude}`;
+      const destination = `${end.latitude},${end.longitude}`;
+      
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&key=${API_KEY}&mode=driving&avoid=tolls`
+      );
+      
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.routes.length > 0) {
+        const route = data.routes[0];
+        const coordinates: {latitude: number, longitude: number}[] = [];
+        
+        // Decode the polyline to get coordinates
+        route.legs.forEach((leg: any) => {
+          leg.steps.forEach((step: any) => {
+            const decoded = decodePolyline(step.polyline.points);
+            coordinates.push(...decoded);
+          });
+        });
+        
+        return {
+          coordinates,
+          distance: route.legs[0].distance.text,
+          duration: route.legs[0].duration.text,
+          steps: route.legs[0].steps
+        };
+      } else {
+        // Fallback to straight line if API fails
+        console.warn('Google Directions API failed, using straight line fallback');
+        console.log('API Response:', data);
+        setIsUsingFallbackRoute(true);
+        return calculateStraightLineRoute(start, end);
+      }
+    } catch (error) {
+      console.error('Error calculating route:', error);
+      // Fallback to straight line
+      setIsUsingFallbackRoute(true);
+      return calculateStraightLineRoute(start, end);
+    }
+  };
+
+  const calculateStraightLineRoute = (start: {latitude: number, longitude: number}, end: {latitude: number, longitude: number}) => {
+    const steps = 50; // More points for smoother line
+    const coordinates = [];
+    
+    for (let i = 0; i <= steps; i++) {
+      const ratio = i / steps;
+      const lat = start.latitude + (end.latitude - start.latitude) * ratio;
+      const lng = start.longitude + (end.longitude - start.longitude) * ratio;
+      coordinates.push({ latitude: lat, longitude: lng });
+    }
+    
+    // Calculate approximate distance and duration
+    const distance = calculateDistance(start, end);
+    const estimatedDuration = Math.round(distance * 1.5); // Rough estimate: 1.5 minutes per km
+    
+    return {
+      coordinates,
+      distance: `${distance.toFixed(1)} km`,
+      duration: `${estimatedDuration} mins`,
+      steps: []
+    };
+  };
+
+  // Calculate distance between two points using Haversine formula
+  const calculateDistance = (point1: {latitude: number, longitude: number}, point2: {latitude: number, longitude: number}) => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (point2.latitude - point1.latitude) * Math.PI / 180;
+    const dLng = (point2.longitude - point1.longitude) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(point1.latitude * Math.PI / 180) * Math.cos(point2.latitude * Math.PI / 180) * 
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Decode Google's polyline encoding
+  const decodePolyline = (encoded: string): {latitude: number, longitude: number}[] => {
+    const poly: {latitude: number, longitude: number}[] = [];
+    let index = 0;
+    const len = encoded.length;
+    let lat = 0;
+    let lng = 0;
+
+    while (index < len) {
+      let b, shift = 0, result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+
+      poly.push({
+        latitude: lat / 1e5,
+        longitude: lng / 1e5
+      });
+    }
+    return poly;
+  };
+
+  const openTrackingModal = async (request: AidRequest) => {
+    setTrackingRequest(request);
+    setShowTrackingModal(true);
+    
+    // Get user's current location
+    try {
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const userLoc = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude
+      };
+      setUserLocation(userLoc);
+      
+      // Set NGO location
+      const ngoLoc = {
+        latitude: NGO_LOCATION.latitude,
+        longitude: NGO_LOCATION.longitude
+      };
+      setNgoLocation(ngoLoc);
+      
+      // Calculate route
+      setIsCalculatingRoute(true);
+      try {
+        const route = await calculateRoute(ngoLoc, userLoc);
+        setRouteCoordinates(route.coordinates);
+        setRouteInfo({
+          distance: route.distance,
+          duration: route.duration,
+          steps: route.steps
+        });
+      } catch (routeError) {
+        console.error('Route calculation failed:', routeError);
+        // Set fallback route info
+        setRouteInfo({
+          distance: 'Route unavailable',
+          duration: 'Route unavailable',
+          steps: []
+        });
+      } finally {
+        setIsCalculatingRoute(false);
+      }
+      
+    } catch (error) {
+      console.error('Error getting user location:', error);
+      Alert.alert('Error', 'Could not get your current location. Please ensure location services are enabled.');
+    }
+  };
+
+  const closeTrackingModal = () => {
+    setShowTrackingModal(false);
+    setTrackingRequest(null);
+    setUserLocation(null);
+    setNgoLocation(null);
+    setRouteCoordinates([]);
+    setRouteInfo(null);
+    setIsCalculatingRoute(false);
+    setIsUsingFallbackRoute(false);
+  };
 
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -357,6 +555,53 @@ export default function AidScreen() {
     }
   };
 
+  const confirmAidReceived = (request: AidRequest) => {
+    Alert.alert(
+      'Confirm Aid Received',
+      'Have you received the aid assistance? This will mark your request as completed.',
+      [
+        { text: 'No', style: 'cancel' },
+        { text: 'Yes, I received it', style: 'default', onPress: () => {
+          setFeedbackRequest(request);
+          setFeedbackRating(0);
+          setShowFeedbackModal(true);
+        }},
+      ]
+    );
+  };
+
+  const submitFeedback = async () => {
+    if (!feedbackRequest || feedbackRating === 0) {
+      Alert.alert('Please Rate', 'Please select a rating before submitting feedback.');
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, 'aid_requests', feedbackRequest.id), {
+        status: 'Delivered',
+        rating: feedbackRating,
+        updatedAt: serverTimestamp(),
+      });
+      
+      setShowFeedbackModal(false);
+      setFeedbackRequest(null);
+      setFeedbackRating(0);
+      
+      Alert.alert(
+        'Thank You!', 
+        'Your feedback has been recorded and your request is now marked as delivered.'
+      );
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save feedback. Please try again.');
+    }
+  };
+
+  const closeFeedbackModal = () => {
+    setShowFeedbackModal(false);
+    setFeedbackRequest(null);
+    setFeedbackRating(0);
+  };
+
   const renderRequestItem = ({ item }: { item: AidRequest }) => {
     const canEditOrCancel = item.status === 'Requested';
     const aidTypesList = ['food','water','medicine','shelter']
@@ -443,6 +688,25 @@ export default function AidScreen() {
             >
               <MaterialIcons name="cancel" size={16} color="#EF4444" />
               <Text style={styles.modernCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {item.status === 'In Progress' && (
+          <View style={styles.cardActions}>
+            <TouchableOpacity 
+              onPress={() => openTrackingModal(item)} 
+              style={styles.trackAidButton}
+            >
+              <Ionicons name="navigate" size={16} color="#fff" />
+              <Text style={styles.trackAidText}>Track My Aid</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => confirmAidReceived(item)} 
+              style={styles.confirmAidButton}
+            >
+              <Ionicons name="checkmark-circle" size={16} color="#fff" />
+              <Text style={styles.confirmAidText}>Confirm Received</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -975,6 +1239,232 @@ export default function AidScreen() {
             )}
           </ScrollView>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Tracking Modal */}
+      <Modal
+        visible={showTrackingModal}
+        animationType="slide"
+        onRequestClose={closeTrackingModal}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modernModalHeader}>
+            <View>
+              <Text style={styles.modernModalTitle}>Track My Aid</Text>
+              <Text style={styles.modernModalSubtitle}>Monitor your aid delivery</Text>
+            </View>
+            <TouchableOpacity onPress={closeTrackingModal} style={styles.modernCloseButton}>
+              <Ionicons name="close" size={28} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.trackingContainer}>
+            {trackingRequest && (
+              <View style={styles.trackingInfo}>
+                <View style={styles.trackingHeader}>
+                  <View style={styles.avatarCircleLarge}>
+                    <MaterialIcons name="person" size={32} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.detailName}>{trackingRequest.fullName}</Text>
+                    <Text style={styles.detailSubtext}>Request ID: {trackingRequest.id}</Text>
+                  </View>
+                  <View style={[styles.statusBanner, { backgroundColor: getStatusColor(trackingRequest.status) + '20' }]}>
+                    <Ionicons name={getStatusIcon(trackingRequest.status) as any} size={20} color={getStatusColor(trackingRequest.status)} />
+                    <Text style={[styles.statusBannerText, { color: getStatusColor(trackingRequest.status) }]}>
+                      {trackingRequest.status}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.trackingMapContainer}>
+              <View style={styles.trackingMapHeader}>
+                <Text style={styles.trackingMapTitle}>Delivery Route</Text>
+                {isUsingFallbackRoute && (
+                  <View style={styles.fallbackIndicator}>
+                    <Ionicons name="warning" size={16} color="#F59E0B" />
+                    <Text style={styles.fallbackText}>Approximate Route</Text>
+                  </View>
+                )}
+              </View>
+              {userLocation && ngoLocation && (
+                <MapView
+                  ref={trackingMapRef}
+                  style={styles.trackingMap}
+                  initialRegion={{
+                    latitude: (userLocation.latitude + ngoLocation.latitude) / 2,
+                    longitude: (userLocation.longitude + ngoLocation.longitude) / 2,
+                    latitudeDelta: Math.abs(userLocation.latitude - ngoLocation.latitude) * 1.5,
+                    longitudeDelta: Math.abs(userLocation.longitude - ngoLocation.longitude) * 1.5,
+                  }}
+                >
+                  {/* User Location Marker */}
+                  <Marker
+                    coordinate={userLocation}
+                    title="Your Location"
+                    description="Aid delivery destination"
+                  >
+                    <View style={styles.userMarker}>
+                      <Ionicons name="person" size={20} color="#fff" />
+                    </View>
+                  </Marker>
+                  
+                  {/* NGO Location Marker */}
+                  <Marker
+                    coordinate={ngoLocation}
+                    title={NGO_LOCATION.name}
+                    description="Emergency Response Center"
+                  >
+                    <View style={styles.ngoMarker}>
+                      <Ionicons name="business" size={20} color="#fff" />
+                    </View>
+                  </Marker>
+                  
+                  {/* Route Polyline */}
+                  {routeCoordinates.length > 0 && (
+                    <Polyline
+                      coordinates={routeCoordinates}
+                      strokeColor="#8B5CF6"
+                      strokeWidth={5}
+                    />
+                  )}
+                </MapView>
+              )}
+              
+              {(!userLocation || !ngoLocation) && (
+                <View style={styles.trackingMapPlaceholder}>
+                  <ActivityIndicator size="large" color="#3B82F6" />
+                  <Text style={styles.trackingMapPlaceholderText}>Loading locations...</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.trackingDetails}>
+              <View style={styles.trackingDetailRow}>
+                <View style={styles.trackingDetailIcon}>
+                  <Ionicons name="location" size={20} color="#3B82F6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trackingDetailLabel}>Your Location</Text>
+                  <Text style={styles.trackingDetailValue}>
+                    {userLocation ? `${userLocation.latitude.toFixed(4)}, ${userLocation.longitude.toFixed(4)}` : 'Loading...'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.trackingDetailRow}>
+                <View style={styles.trackingDetailIcon}>
+                  <Ionicons name="business" size={20} color="#8B5CF6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trackingDetailLabel}>Response Center</Text>
+                  <Text style={styles.trackingDetailValue}>{NGO_LOCATION.name}</Text>
+                </View>
+              </View>
+
+              <View style={styles.trackingDetailRow}>
+                <View style={styles.trackingDetailIcon}>
+                  <Ionicons name="time" size={20} color="#10B981" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trackingDetailLabel}>Estimated Duration</Text>
+                  <Text style={styles.trackingDetailValue}>
+                    {isCalculatingRoute ? 'Calculating...' : (routeInfo?.duration || 'Unknown')}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.trackingDetailRow}>
+                <View style={styles.trackingDetailIcon}>
+                  <Ionicons name="navigate" size={20} color="#8B5CF6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trackingDetailLabel}>Route Distance</Text>
+                  <Text style={styles.trackingDetailValue}>
+                    {isCalculatingRoute ? 'Calculating...' : (routeInfo?.distance || 'Unknown')}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Feedback Modal */}
+      <Modal
+        visible={showFeedbackModal}
+        animationType="slide"
+        onRequestClose={closeFeedbackModal}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modernModalHeader}>
+            <View>
+              <Text style={styles.modernModalTitle}>Rate Your Experience</Text>
+              <Text style={styles.modernModalSubtitle}>How was your aid delivery experience?</Text>
+            </View>
+            <TouchableOpacity onPress={closeFeedbackModal} style={styles.modernCloseButton}>
+              <Ionicons name="close" size={28} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.feedbackContainer}>
+            {feedbackRequest && (
+              <View style={styles.feedbackInfo}>
+                <View style={styles.avatarCircleLarge}>
+                  <MaterialIcons name="person" size={32} color="#fff" />
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.detailName}>{feedbackRequest.fullName}</Text>
+                  <Text style={styles.detailSubtext}>Request ID: {feedbackRequest.id}</Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.feedbackSection}>
+              <Text style={styles.feedbackTitle}>Please rate your experience</Text>
+              <Text style={styles.feedbackSubtitle}>Your feedback helps us improve our service</Text>
+              
+              <View style={styles.feedbackStarsContainer}>
+                {[1,2,3,4,5].map((star) => (
+                  <TouchableOpacity
+                    key={star}
+                    onPress={() => setFeedbackRating(star)}
+                    style={styles.feedbackStarButton}
+                    activeOpacity={0.7}
+                  >
+                    <FontAwesome
+                      name={feedbackRating >= star ? 'star' : 'star-o'}
+                      size={40}
+                      color={feedbackRating >= star ? '#FFC107' : '#D1D5DB'}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {feedbackRating > 0 && (
+                <View style={styles.feedbackRatingText}>
+                  <Text style={styles.feedbackRatingLabel}>
+                    {feedbackRating === 1 ? 'Poor' : 
+                     feedbackRating === 2 ? 'Fair' : 
+                     feedbackRating === 3 ? 'Good' : 
+                     feedbackRating === 4 ? 'Very Good' : 'Excellent'}
+                  </Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                onPress={submitFeedback}
+                style={[styles.feedbackSubmitButton, feedbackRating === 0 && styles.feedbackSubmitButtonDisabled]}
+                disabled={feedbackRating === 0}
+              >
+                <Ionicons name="checkmark-circle" size={24} color="#fff" />
+                <Text style={styles.feedbackSubmitButtonText}>Submit Feedback</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       <View style={styles.listSection}>
@@ -1658,6 +2148,278 @@ const styles = StyleSheet.create({
   actionButtonText: {
     color: '#fff',
     fontSize: 15,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  // Track Aid Button Styles
+  trackAidButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8B5CF6',
+    paddingVertical: 12,
+    borderRadius: 10,
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  trackAidText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  // Tracking Modal Styles
+  trackingContainer: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  trackingInfo: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  trackingHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#F9FAFB',
+  },
+  trackingMapContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  trackingMapHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  trackingMapTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  fallbackIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  fallbackText: {
+    fontSize: 12,
+    color: '#92400E',
+    fontWeight: '600',
+    marginLeft: 4,
+  },
+  trackingMap: {
+    width: '100%',
+    height: 300,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  trackingMapPlaceholder: {
+    height: 300,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+  },
+  trackingMapPlaceholderText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+  },
+  userMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#3B82F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  ngoMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#8B5CF6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  trackingDetails: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 24,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  trackingDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  trackingDetailIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  trackingDetailLabel: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  trackingDetailValue: {
+    fontSize: 16,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  // Confirm Aid Button Styles
+  confirmAidButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginLeft: 8,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  confirmAidText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  // Feedback Modal Styles
+  feedbackContainer: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  feedbackInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  feedbackSection: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  feedbackTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  feedbackSubtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 32,
+    textAlign: 'center',
+  },
+  feedbackStarsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  feedbackStarButton: {
+    marginHorizontal: 8,
+    padding: 8,
+  },
+  feedbackRatingText: {
+    marginBottom: 24,
+  },
+  feedbackRatingLabel: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  feedbackSubmitButton: {
+    backgroundColor: '#10B981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  feedbackSubmitButtonDisabled: {
+    backgroundColor: '#D1D5DB',
+    shadowOpacity: 0,
+  },
+  feedbackSubmitButtonText: {
+    color: '#fff',
+    fontSize: 17,
     fontWeight: '700',
     marginLeft: 8,
   },
