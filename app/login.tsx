@@ -1,16 +1,46 @@
-import { View, Text, SafeAreaView, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  SafeAreaView,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+} from 'react-native';
 import { auth } from '../FirebaseConfig';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
 import { router } from 'expo-router';
 
-const Index = () => {
+const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check if user is already logged in when app starts
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        const isNgo = user.email?.trim().toLowerCase() === 'ngo@gmail.com';
+        router.replace(isNgo ? '/(ngo)/dashboard' : '/(tabs)');
+      } else {
+        setLoading(false); // show login only if not logged in
+      }
+    });
+
+    return unsubscribe;
+  }, []);
 
   const signIn = async () => {
+    if (!email || !password) {
+      alert('Please enter email and password.');
+      return;
+    }
+
     try {
-      const user = await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
       if (user) {
         const isNgo = email.trim().toLowerCase() === 'ngo@gmail.com';
         router.replace(isNgo ? '/(ngo)/dashboard' : '/(tabs)');
@@ -21,20 +51,19 @@ const Index = () => {
     }
   };
 
-  const signUp = async () => {
-    try {
-      const user = await createUserWithEmailAndPassword(auth, email, password);
-      if (user) router.replace('/(tabs)');
-    } catch (error: any) {
-      console.log(error);
-      alert('Sign Up Failed: ' + error.message);
-    }
-  };
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2980b9" />
+        <Text style={styles.loadingText}>Checking session...</Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Welcome Back 👋</Text>
-      <Text style={styles.subtitle}>Login or create a new account</Text>
+      <Text style={styles.subtitle}>Login to your account</Text>
 
       <TextInput
         placeholder="Email"
@@ -42,6 +71,7 @@ const Index = () => {
         value={email}
         onChangeText={setEmail}
         style={styles.input}
+        autoCapitalize="none"
       />
 
       <TextInput
@@ -57,35 +87,21 @@ const Index = () => {
         <Text style={styles.buttonText}>Sign In</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={signUp} style={[styles.button, styles.signUpButton]}>
-        <Text style={styles.buttonText}>Sign Up</Text>
+      <TouchableOpacity onPress={() => router.push('/Register')} style={{ alignItems: 'center' }}>
+        <Text style={{ color: '#2980b9', fontWeight: '600' }}>
+          Don't have an account? Sign Up
+        </Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
 };
 
-export default Index;
+export default Login;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 25,
-    backgroundColor: '#f5f6fa',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#7f8c8d',
-    textAlign: 'center',
-    marginBottom: 30,
-  },
+  container: { flex: 1, justifyContent: 'center', padding: 25, backgroundColor: '#f5f6fa' },
+  title: { fontSize: 28, fontWeight: 'bold', color: '#2c3e50', textAlign: 'center', marginBottom: 10 },
+  subtitle: { fontSize: 16, color: '#7f8c8d', textAlign: 'center', marginBottom: 30 },
   input: {
     borderWidth: 1,
     borderColor: '#dcdde1',
@@ -112,15 +128,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  signInButton: {
-    backgroundColor: '#2980b9',
-  },
-  signUpButton: {
-    backgroundColor: '#27ae60',
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
-  },
+  signInButton: { backgroundColor: '#2980b9' },
+  buttonText: { color: '#fff', fontSize: 17, fontWeight: '600' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f5f6fa' },
+  loadingText: { marginTop: 10, color: '#7f8c8d', fontSize: 16 },
 });
