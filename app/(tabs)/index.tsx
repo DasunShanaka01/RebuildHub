@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 
+
 import React, { useEffect, useState } from "react";
 import {
   StyleSheet,
@@ -13,7 +14,7 @@ import { Link, Redirect } from "expo-router";
 import MapView, { PROVIDER_GOOGLE, Marker, Circle, Callout } from "react-native-maps";
 import * as Location from "expo-location";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, onSnapshot, query ,addDoc,serverTimestamp} from "firebase/firestore";
+import { collection, onSnapshot, query ,addDoc, serverTimestamp, doc, getDoc} from "firebase/firestore";
 import { auth, db } from "../../FirebaseConfig";
 import { Picker } from "@react-native-picker/picker";
 import Icon from "react-native-vector-icons/FontAwesome";
@@ -58,10 +59,6 @@ export default function Index() {
   // Ripple animation reference for emergency markers
   const rippleAnim = useRef(new Animated.Value(0)).current;
 
-
-
-
-  // Check Firebase auth session
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
@@ -69,6 +66,35 @@ export default function Index() {
     });
     return unsubscribe;
   }, []);
+  // After the other useStates (like location, clusters, etc.)
+  const [userData, setUserData] = useState<Record<string, unknown> | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+
+  useEffect(() => {
+    if (!user) return; // wait until user is loaded
+
+    const fetchUser = async () => {
+      try {
+        const userRef = doc(db, "users", user.uid);
+        const snap = await getDoc(userRef);
+
+        if (snap.exists()) {
+          setUserData(snap.data() as Record<string, unknown>);
+        } else {
+          console.log("No user data found!");
+          setUserData(null);
+        }
+      } catch (error) {
+        console.error("Error fetching user data:", error);
+        setUserData(null);
+      } finally {
+        setLoadingProfile(false);
+      }
+    };
+
+    fetchUser();
+  }, [user]);
+
 
   // Request location permission & get current location
   useEffect(() => {
@@ -635,29 +661,83 @@ export default function Index() {
           <View style={{ flexDirection: "row", justifyContent: "space-around", marginTop: 20 }}>
             <TouchableOpacity
               style={[styles.closeButton, { backgroundColor: "green", width: "40%" }]}
+              // onPress={async () => {
+              //   if (!selectedEmergency) {
+              //     Alert.alert("Please select a disaster type before confirming!");
+              //     return;
+              //   }
+              //   try {
+              //     // await addDoc(collection(db, "emergencies"), {
+              //     //   type: selectedEmergency,
+              //     //   userId: user?.uid,
+              //     //   location: userLocation,
+              //     //   createdAt: serverTimestamp(),
+              //     //   status: "pending",
+              //     // });
+              //   const handleSubmit = async () => {
+              //     if (!user?.uid) return;
+
+              //     const profile = userData ?? {}; // just in case
+              //     await addDoc(collection(db, "emergencies"), {
+              //       type: selectedEmergency,
+              //       userId: user?.uid ?? null,
+              //       user: {
+              //         name: userData?.name ?? "",
+              //         email: userData?.email ?? user?.email ?? "",
+              //         address: userData?.address ?? "",
+              //         phone: userData?.phone ?? "",
+              //       },
+              //       location: userLocation ?? null, // keep your location object/coords as is
+              //       createdAt: serverTimestamp(),
+              //       status: "pending",
+              //     });
+              //   };
+
+              //     setSubmittedType(selectedEmergency);
+              //     setModalVisible(false);
+              //     setSuccessModalVisible(true); // show colorful success modal
+              //     setSelectedEmergency(null);
+              //   } catch (error) {
+              //     console.error("Error submitting emergency:", error);
+              //     Alert.alert("Error", "Failed to submit emergency");
+              //   }
+              // }}
+
               onPress={async () => {
                 if (!selectedEmergency) {
                   Alert.alert("Please select a disaster type before confirming!");
                   return;
                 }
+                if (!user?.uid) {
+                  Alert.alert("Not logged in");
+                  return;
+                }
+
                 try {
                   await addDoc(collection(db, "emergencies"), {
                     type: selectedEmergency,
-                    userId: user?.uid,
-                    location: userLocation,
+                    userId: user.uid,
+                    user: {
+                      name: userData?.name ?? "",
+                      email: userData?.email ?? user?.email ?? "",
+                      address: userData?.address ?? "",
+                      phone: userData?.phone ?? "",
+                    },
+                    location: userLocation ?? null,
                     createdAt: serverTimestamp(),
                     status: "pending",
                   });
 
                   setSubmittedType(selectedEmergency);
                   setModalVisible(false);
-                  setSuccessModalVisible(true); // show colorful success modal
-                  setSelectedEmergency(null);
+                  setSuccessModalVisible(true);
+                  setSelectedEmergency("");
                 } catch (error) {
                   console.error("Error submitting emergency:", error);
                   Alert.alert("Error", "Failed to submit emergency");
                 }
               }}
+
             >
               <Text style={styles.buttonText}>Confirm</Text>
             </TouchableOpacity>
