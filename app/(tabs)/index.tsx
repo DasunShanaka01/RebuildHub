@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   StyleSheet,
   View,
@@ -8,17 +8,16 @@ import {
   Modal,
   TouchableOpacity,
   Alert,
+  Animated,
 } from "react-native";
 import { Link, Redirect } from "expo-router";
 import MapView, { PROVIDER_GOOGLE, Marker, Circle, Callout } from "react-native-maps";
 import * as Location from "expo-location";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, onSnapshot, query ,addDoc,serverTimestamp} from "firebase/firestore";
+import { collection, onSnapshot, query, addDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "../../FirebaseConfig";
 import { Picker } from "@react-native-picker/picker";
 import Icon from "react-native-vector-icons/FontAwesome";
-import { Animated } from "react-native";
-import { useRef } from "react";
 
 interface Report {
   id: string;
@@ -288,7 +287,9 @@ export default function Index() {
         };
       })
       .filter(Boolean);
-    setEmergencies(data);
+  // Remove any null entries (from docs without location) and ensure typing
+  const filtered = data.filter((x): x is { id: string; type: string; location: { latitude: number; longitude: number } } => !!x);
+  setEmergencies(filtered);
   });
 
   return unsubscribe;
@@ -621,9 +622,9 @@ export default function Index() {
                 key={type}
                 style={[
                   styles.emergencyButton,
-                  selectedEmergency === type && styles.emergencyButtonSelected, // show red highlight
+                  selectedEmergency === type && styles.emergencyButtonSelected,
                 ]}
-                onPress={() => setSelectedEmergency(type)} // only select, not submit yet
+                onPress={() => setSelectedEmergency(type)}
               >
                 <Text style={styles.emergencyButtonText}>{type}</Text>
               </TouchableOpacity>
@@ -651,7 +652,7 @@ export default function Index() {
                   setSubmittedType(selectedEmergency);
                   setModalVisible(false);
                   setSuccessModalVisible(true); // show colorful success modal
-                  setSelectedEmergency(null);
+                  setSelectedEmergency("");
                 } catch (error) {
                   console.error("Error submitting emergency:", error);
                   Alert.alert("Error", "Failed to submit emergency");
@@ -664,7 +665,7 @@ export default function Index() {
             <TouchableOpacity
               style={[styles.closeButton, { backgroundColor: "red", width: "40%" }]}
               onPress={() => {
-                setSelectedEmergency(null);
+                  setSelectedEmergency("");
                 setModalVisible(false);
               }}
             >
@@ -786,7 +787,7 @@ const styles = StyleSheet.create({
   picker: {
     height: 50,
     marginBottom: 16,
-    color: "#333"
+    color: "#333",
   },
   selectedText: {
     fontSize: 14,
