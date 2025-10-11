@@ -8,11 +8,11 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { auth, db } from '../../FirebaseConfig';
 import BackButton from '../../components/BackButton';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps'; 
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 
 const CLOUDINARY_CONFIG = {
   cloudName: 'dkp01emhb',
-  uploadPreset: 'adadadad', 
+  uploadPreset: 'adadadad',
 };
 
 interface MediaItem {
@@ -64,7 +64,7 @@ const CustomDropdown: React.FC<CustomDropdownProps> = ({ items, selectedValue, o
       </TouchableOpacity>
       <Modal visible={isOpen} transparent animationType="fade" onRequestClose={() => setIsOpen(false)}>
         <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsOpen(false)}>
-          <View style={styles.modalContent}>
+          <View style={styles.dropdownModalContent}>
             <FlatList
               data={items}
               keyExtractor={(item) => item.value}
@@ -101,6 +101,24 @@ const severities = [
   { label: 'High', value: 'high' },
 ];
 
+const getSeverityColor = (severity: string) => {
+  switch (severity) {
+    case 'high': return '#DC2626';
+    case 'medium': return '#F59E0B';
+    case 'low': return '#10B981';
+    default: return '#64748B';
+  }
+};
+
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'pending': return '#F59E0B';
+    case 'approved': return '#10B981';
+    case 'rejected': return '#DC2626';
+    default: return '#64748B';
+  }
+};
+
 export default function ReportProfile() {
   const navigation = useNavigation();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -120,14 +138,12 @@ export default function ReportProfile() {
   const [showLocationInput, setShowLocationInput] = useState(false);
 
   useEffect(() => {
-    // Monitor auth state
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (!currentUser && id) {
-        setUser({ uid: id } as User); // Fallback to id if no user is logged in
+        setUser({ uid: id } as User);
       }
     });
-
     return () => unsubscribe();
   }, [id]);
 
@@ -200,7 +216,6 @@ export default function ReportProfile() {
       });
       setEditLocation(loc.coords);
       
-      // Reverse geocode to get address
       const reverseGeocode = await Location.reverseGeocodeAsync({
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
@@ -319,7 +334,7 @@ export default function ReportProfile() {
       });
       Alert.alert('Success', 'Report updated successfully');
       setIsEditModalOpen(false);
-      fetchReports(); // Refresh the list
+      fetchReports();
     } catch (error: any) {
       Alert.alert('Error', 'Failed to update report: ' + error.message);
     }
@@ -338,7 +353,7 @@ export default function ReportProfile() {
             try {
               await deleteDoc(doc(db, 'reportData', reportId));
               Alert.alert('Success', 'Report deleted successfully');
-              fetchReports(); // Refresh the list
+              fetchReports();
             } catch (error: any) {
               Alert.alert('Error', 'Failed to delete report: ' + error.message);
             }
@@ -348,13 +363,13 @@ export default function ReportProfile() {
     );
   };
 
-  // Small Map Component for each report
   const SmallMap = ({ location, address }: { location: any; address?: string }) => {
     if (!location || !location.latitude || !location.longitude) {
       return (
         <View style={styles.mapContainer}>
           <View style={styles.noLocationContainer}>
-            <Text style={styles.noLocationText}>📍 No Location Data</Text>
+            <Text style={styles.noLocationIcon}>📍</Text>
+            <Text style={styles.noLocationText}>No Location Data</Text>
           </View>
         </View>
       );
@@ -374,7 +389,7 @@ export default function ReportProfile() {
           showsUserLocation={false}
           showsMyLocationButton={false}
           loadingEnabled={true}
-          loadingIndicatorColor="#4DB6AC"
+          loadingIndicatorColor="#2563EB"
           scrollEnabled={false}
           zoomEnabled={false}
           pitchEnabled={false}
@@ -394,42 +409,64 @@ export default function ReportProfile() {
   };
 
   const renderReport = ({ item }: { item: Report }) => (
-    <View style={styles.reportItem}>
-      <Text style={styles.reportTitle}>{item.description.substring(0, 30)}...</Text>
-      <Text style={styles.reportInfo}>Category: {categories.find(c => c.value === item.category)?.label}</Text>
-      <Text style={styles.reportInfo}>Severity: {severities.find(s => s.value === item.severity)?.label}</Text>
-      <Text style={styles.reportInfo}>Status: {item.reportStatus}</Text>
-      
-      {/* Location Information */}
-      <View style={styles.locationSection}>
-        <Text style={styles.locationTitle}>📍 Location</Text>
-        {item.location ? (
-          <View style={styles.locationInfo}>
-            <Text style={styles.coordinates}>
-              Lat: {item.location.latitude?.toFixed(4) || 'N/A'}, 
-              Lon: {item.location.longitude?.toFixed(4) || 'N/A'}
-            </Text>
-            <Text style={styles.timestamp}>
-              Reported: {new Date(item.timestamp).toLocaleString()}
+    <View style={styles.reportCard}>
+      <View style={styles.reportHeader}>
+        <Text style={styles.reportTitle} numberOfLines={2}>
+          {item.description.substring(0, 50)}...
+        </Text>
+        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.reportStatus) + '20' }]}>
+          <Text style={[styles.statusText, { color: getStatusColor(item.reportStatus) }]}>
+            {item.reportStatus.toUpperCase()}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.reportDetails}>
+        <View style={styles.detailRow}>
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>Category</Text>
+            <Text style={styles.detailValue}>
+              {categories.find(c => c.value === item.category)?.label || item.category}
             </Text>
           </View>
-        ) : (
-          <Text style={styles.noLocationText}>No location data available</Text>
-        )}
-        
-        {/* Small Map View */}
-        <SmallMap location={item.location} />
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>Severity</Text>
+            <View style={[styles.severityBadge, { backgroundColor: getSeverityColor(item.severity) }]}>
+              <Text style={styles.severityText}>
+                {severities.find(s => s.value === item.severity)?.label || item.severity}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.locationPreviewSection}>
+          <Text style={styles.locationLabel}>Location</Text>
+          {item.location ? (
+            <>
+              <Text style={styles.coordinates}>
+                {item.location.latitude?.toFixed(4)}, {item.location.longitude?.toFixed(4)}
+              </Text>
+              <SmallMap location={item.location} />
+            </>
+          ) : (
+            <Text style={styles.noLocationText}>No location data</Text>
+          )}
+        </View>
+
+        <Text style={styles.timestamp}>
+          {new Date(item.timestamp).toLocaleDateString()} at {new Date(item.timestamp).toLocaleTimeString()}
+        </Text>
       </View>
 
       <View style={styles.actionButtons}>
-        <TouchableOpacity style={styles.actionButton} onPress={() => handleView(item)}>
-          <Text style={styles.actionButtonText}>View</Text>
+        <TouchableOpacity style={styles.viewButton} onPress={() => handleView(item)}>
+          <Text style={styles.viewButtonText}>View Details</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={() => handleEdit(item)}>
-          <Text style={styles.actionButtonText}>Edit</Text>
+        <TouchableOpacity style={styles.editButton} onPress={() => handleEdit(item)}>
+          <Text style={styles.editButtonText}>Edit</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionButton, styles.deleteButton]} onPress={() => handleDelete(item.id)}>
-          <Text style={styles.actionButtonText}>Delete</Text>
+        <TouchableOpacity style={styles.deleteButton} onPress={() => handleDelete(item.id)}>
+          <Text style={styles.deleteButtonText}>Delete</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -438,176 +475,251 @@ export default function ReportProfile() {
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
       <BackButton />
-      <Text style={styles.title}>Your Reports</Text>
+      <Text style={styles.title}>My Reports</Text>
+      <Text style={styles.subtitle}>{reports.length} report{reports.length !== 1 ? 's' : ''} submitted</Text>
+      
       {reports.length === 0 ? (
-        <Text>No reports found</Text>
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyIcon}>📋</Text>
+          <Text style={styles.emptyTitle}>No Reports Yet</Text>
+          <Text style={styles.emptyText}>Your submitted disaster reports will appear here</Text>
+        </View>
       ) : (
         <FlatList
           data={reports}
           renderItem={renderReport}
           keyExtractor={(item) => item.id}
-          style={styles.list}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
         />
       )}
 
       {/* View Modal */}
       <Modal visible={isViewModalOpen} animationType="slide" onRequestClose={() => setIsViewModalOpen(false)}>
-        <ScrollView style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>Report Details</Text>
-          {selectedReport && (
-            <>
-              <Text style={styles.modalText}>Description: {selectedReport.description}</Text>
-              <Text style={styles.modalText}>Category: {categories.find(c => c.value === selectedReport.category)?.label}</Text>
-              <Text style={styles.modalText}>Severity: {severities.find(s => s.value === selectedReport.severity)?.label}</Text>
-              <Text style={styles.modalText}>Status: {selectedReport.reportStatus}</Text>
-              
-              {/* Location Information with Map */}
-              <View style={styles.modalLocationSection}>
-                <Text style={styles.modalLocationTitle}>📍 Location Information</Text>
-                <Text style={styles.modalCoordinates}>
-                  Lat: {selectedReport.location.latitude.toFixed(4)}, Lon: {selectedReport.location.longitude.toFixed(4)}
-                </Text>
-                <Text style={styles.modalTimestamp}>
-                  Submitted: {new Date(selectedReport.timestamp).toLocaleString()}
-                </Text>
-                
-                {/* Small Map in Modal */}
-                <SmallMap location={selectedReport.location} />
+        <View style={styles.modalContainer}>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Report Details</Text>
+              <TouchableOpacity onPress={() => setIsViewModalOpen(false)} style={styles.closeButton}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {selectedReport && (
+              <View style={styles.modalContent}>
+                <View style={[styles.statusBadge, styles.modalStatusBadge, { backgroundColor: getStatusColor(selectedReport.reportStatus) + '20' }]}>
+                  <Text style={[styles.statusText, { color: getStatusColor(selectedReport.reportStatus) }]}>
+                    {selectedReport.reportStatus.toUpperCase()}
+                  </Text>
+                </View>
+
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalSectionTitle}>Description</Text>
+                  <Text style={styles.modalText}>{selectedReport.description}</Text>
+                </View>
+
+                <View style={styles.modalDetailGrid}>
+                  <View style={styles.modalDetailItem}>
+                    <Text style={styles.modalLabel}>Category</Text>
+                    <Text style={styles.modalValue}>
+                      {categories.find(c => c.value === selectedReport.category)?.label}
+                    </Text>
+                  </View>
+                  <View style={styles.modalDetailItem}>
+                    <Text style={styles.modalLabel}>Severity</Text>
+                    <View style={[styles.severityBadge, { backgroundColor: getSeverityColor(selectedReport.severity) }]}>
+                      <Text style={styles.severityText}>
+                        {severities.find(s => s.value === selectedReport.severity)?.label}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalSectionTitle}>Location</Text>
+                  <Text style={styles.modalCoordinates}>
+                    {selectedReport.location.latitude.toFixed(4)}, {selectedReport.location.longitude.toFixed(4)}
+                  </Text>
+                  <SmallMap location={selectedReport.location} />
+                </View>
+
+                {selectedReport.media.length > 0 && (
+                  <View style={styles.modalSection}>
+                    <Text style={styles.modalSectionTitle}>Media</Text>
+                    <Image source={{ uri: selectedReport.media[0].url }} style={styles.modalImage} />
+                  </View>
+                )}
+
+                <View style={styles.modalSection}>
+                  <Text style={styles.modalTimestamp}>
+                    Submitted on {new Date(selectedReport.timestamp).toLocaleDateString()} at {new Date(selectedReport.timestamp).toLocaleTimeString()}
+                  </Text>
+                </View>
+
+                <TouchableOpacity style={styles.modalCloseButton} onPress={() => setIsViewModalOpen(false)}>
+                  <Text style={styles.modalCloseButtonText}>Close</Text>
+                </TouchableOpacity>
               </View>
-              
-              {selectedReport.media.length > 0 && (
-                <Image source={{ uri: selectedReport.media[0].url }} style={styles.modalImage} />
-              )}
-              <Button title="Close" onPress={() => setIsViewModalOpen(false)} />
-            </>
-          )}
-        </ScrollView>
+            )}
+          </ScrollView>
+        </View>
       </Modal>
 
       {/* Edit Modal */}
       <Modal visible={isEditModalOpen} animationType="slide" onRequestClose={() => setIsEditModalOpen(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalContainer}>
           <ScrollView showsVerticalScrollIndicator={false}>
-            <Text style={styles.modalTitle}>Edit Report</Text>
-            
-            <TextInput
-              style={[styles.input, { height: 80 }]}
-              value={editDescription}
-              onChangeText={setEditDescription}
-              placeholder="Describe the damage"
-              multiline
-            />
-            <Button title="Pick Image/Video" onPress={pickImage} />
-            {editImage && <Image source={{ uri: editImage }} style={styles.modalImage} />}
-            
-            {/* Enhanced Location Section */}
-            <View style={styles.locationSection}>
-              <Text style={styles.sectionTitle}>Location Information</Text>
-              
-              {/* Location Buttons */}
-              <View style={styles.locationButtons}>
-                <Button title="Get Current Location" onPress={getLocation} color="#4DB6AC" />
-                <Button 
-                  title={showLocationInput ? "Hide Manual Input" : "Manual Input"} 
-                  onPress={() => setShowLocationInput(!showLocationInput)} 
-                  color="#FF9800" 
-                />
-              </View>
-              
-              {/* Manual Location Input */}
-              {showLocationInput && (
-                <View style={styles.manualLocationContainer}>
-                  <Text style={styles.label}>Enter Address:</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={editAddress}
-                    onChangeText={setEditAddress}
-                    placeholder="Enter full address"
-                  />
-                  <Button title="Find Address" onPress={geocodeAddress} color="#4DB6AC" />
-                  
-                  <Text style={styles.label}>Or Enter Coordinates:</Text>
-                  <View style={styles.coordinateInputs}>
-                    <TextInput
-                      style={[styles.input, styles.coordinateInput]}
-                      value={manualLat}
-                      onChangeText={setManualLat}
-                      placeholder="Latitude"
-                      keyboardType="numeric"
-                    />
-                    <TextInput
-                      style={[styles.input, styles.coordinateInput]}
-                      value={manualLon}
-                      onChangeText={setManualLon}
-                      placeholder="Longitude"
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <Button title="Set Coordinates" onPress={setManualLocation} color="#4DB6AC" />
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Report</Text>
+              <TouchableOpacity onPress={() => setIsEditModalOpen(false)} style={styles.closeButton}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.editFormContent}>
+              <Text style={styles.inputLabel}>Description *</Text>
+              <TextInput
+                style={styles.textArea}
+                value={editDescription}
+                onChangeText={setEditDescription}
+                placeholder="Describe the damage..."
+                placeholderTextColor="#94A3B8"
+                multiline
+                numberOfLines={4}
+              />
+
+              <Text style={styles.inputLabel}>Category *</Text>
+              <CustomDropdown
+                items={categories}
+                selectedValue={editCategory}
+                onSelect={setEditCategory}
+                placeholder="Select category"
+                style={styles.dropdownWrapper}
+              />
+
+              <Text style={styles.inputLabel}>Severity *</Text>
+              <CustomDropdown
+                items={severities}
+                selectedValue={editSeverity}
+                onSelect={setEditSeverity}
+                placeholder="Select severity"
+                style={styles.dropdownWrapper}
+              />
+
+              <Text style={styles.inputLabel}>Media (Optional)</Text>
+              <TouchableOpacity style={styles.mediaButton} onPress={pickImage}>
+                <Text style={styles.mediaButtonIcon}>📷</Text>
+                <Text style={styles.mediaButtonText}>
+                  {editImage ? 'Change Media' : 'Add Photo/Video'}
+                </Text>
+              </TouchableOpacity>
+              {editImage && <Image source={{ uri: editImage }} style={styles.editImage} />}
+
+              <View style={styles.locationEditSection}>
+                <Text style={styles.sectionTitle}>Location *</Text>
+                
+                <View style={styles.locationButtonGroup}>
+                  <TouchableOpacity style={styles.primaryButton} onPress={getLocation}>
+                    <Text style={styles.primaryButtonText}>📍 Current</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.secondaryButton} 
+                    onPress={() => setShowLocationInput(!showLocationInput)}
+                  >
+                    <Text style={styles.secondaryButtonText}>✏️ Manual</Text>
+                  </TouchableOpacity>
                 </View>
-              )}
-              
-              {/* Location Display */}
-              {editLocation && (
-                <View style={styles.locationDisplay}>
-                  <Text style={styles.locationDisplayText}>
-                    📍 Lat: {editLocation.latitude.toFixed(4)}, Lon: {editLocation.longitude.toFixed(4)}
-                  </Text>
-                  {editAddress && (
-                    <Text style={styles.addressText}>
-                      📍 Address: {editAddress}
+
+                {showLocationInput && (
+                  <View style={styles.manualInputSection}>
+                    <Text style={styles.inputLabel}>Search Address</Text>
+                    <View style={styles.addressInputGroup}>
+                      <TextInput
+                        style={styles.addressInput}
+                        value={editAddress}
+                        onChangeText={setEditAddress}
+                        placeholder="Enter full address"
+                        placeholderTextColor="#94A3B8"
+                      />
+                      <TouchableOpacity style={styles.searchButton} onPress={geocodeAddress}>
+                        <Text style={styles.searchButtonText}>🔍</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.divider}>
+                      <View style={styles.dividerLine} />
+                      <Text style={styles.dividerText}>OR</Text>
+                      <View style={styles.dividerLine} />
+                    </View>
+
+                    <Text style={styles.inputLabel}>Enter Coordinates</Text>
+                    <View style={styles.coordRow}>
+                      <TextInput
+                        style={styles.coordInput}
+                        value={manualLat}
+                        onChangeText={setManualLat}
+                        placeholder="Latitude"
+                        placeholderTextColor="#94A3B8"
+                        keyboardType="numeric"
+                      />
+                      <TextInput
+                        style={styles.coordInput}
+                        value={manualLon}
+                        onChangeText={setManualLon}
+                        placeholder="Longitude"
+                        placeholderTextColor="#94A3B8"
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <TouchableOpacity style={styles.setLocationButton} onPress={setManualLocation}>
+                      <Text style={styles.setLocationButtonText}>Set Location</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {editLocation && (
+                  <View style={styles.locationPreview}>
+                    <Text style={styles.coordDisplay}>
+                      📌 {editLocation.latitude.toFixed(4)}, {editLocation.longitude.toFixed(4)}
                     </Text>
-                  )}
-                  
-                  {/* Small Map View */}
-                  <View style={styles.mapContainer}>
-                    <MapView
-                      style={styles.map}
-                      provider={PROVIDER_GOOGLE}
-                      region={{
-                        latitude: editLocation.latitude,
-                        longitude: editLocation.longitude,
-                        latitudeDelta: 0.01,
-                        longitudeDelta: 0.01,
-                      }}
-                      showsUserLocation={true}
-                      showsMyLocationButton={false}
-                      loadingEnabled={true}
-                      loadingIndicatorColor="#4DB6AC"
-                    >
-                      <Marker
-                        coordinate={{
+                    {editAddress && <Text style={styles.addressDisplay}>{editAddress}</Text>}
+                    <View style={styles.mapWrapper}>
+                      <MapView
+                        style={styles.map}
+                        provider={PROVIDER_GOOGLE}
+                        region={{
                           latitude: editLocation.latitude,
                           longitude: editLocation.longitude,
+                          latitudeDelta: 0.01,
+                          longitudeDelta: 0.01,
                         }}
-                        title="Report Location"
-                        description={editAddress || "Damage Report Location"}
-                      />
-                    </MapView>
+                        showsUserLocation={true}
+                        showsMyLocationButton={false}
+                        loadingEnabled={true}
+                        loadingIndicatorColor="#2563EB"
+                      >
+                        <Marker
+                          coordinate={{
+                            latitude: editLocation.latitude,
+                            longitude: editLocation.longitude,
+                          }}
+                          title="Report Location"
+                          description={editAddress || "Damage Report Location"}
+                        />
+                      </MapView>
+                    </View>
                   </View>
-                </View>
-              )}
-            </View>
-            
-            <Text style={styles.label}>Select Category</Text>
-            <CustomDropdown
-              items={categories}
-              selectedValue={editCategory}
-              onSelect={setEditCategory}
-              placeholder="Choose category"
-              style={styles.dropdownWrapper}
-            />
-            <Text style={styles.label}>Select Severity</Text>
-            <CustomDropdown
-              items={severities}
-              selectedValue={editSeverity}
-              onSelect={setEditSeverity}
-              placeholder="Choose severity"
-              style={styles.dropdownWrapper}
-            />
-            <View style={styles.modalButtonRow}>
-              <Button title="Save" onPress={handleSaveEdit} />
-              <Button title="Cancel" color="red" onPress={() => setIsEditModalOpen(false)} />
+                )}
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.cancelButton} onPress={() => setIsEditModalOpen(false)}>
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.saveButton} onPress={handleSaveEdit}>
+                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -619,85 +731,335 @@ export default function ReportProfile() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: '#F1F5F9',
+    paddingTop: 16,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
-    color: '#1A237E',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1E293B',
+    paddingHorizontal: 16,
+    marginTop: 8,
   },
-  list: {
+  subtitle: {
+    fontSize: 15,
+    color: '#64748B',
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  emptyState: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
   },
-  reportItem: {
+  emptyIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 15,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  reportCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
     padding: 16,
-    marginBottom: 10,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#4DB6AC',
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  reportHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
   },
   reportTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginRight: 8,
+    lineHeight: 24,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  reportDetails: {
+    marginBottom: 12,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    marginBottom: 12,
+    gap: 12,
+  },
+  detailItem: {
+    flex: 1,
+  },
+  detailLabel: {
+    fontSize: 13,
+    color: '#64748B',
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  detailValue: {
+    fontSize: 15,
+    color: '#1E293B',
+    fontWeight: '600',
+  },
+  severityBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  severityText: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  locationPreviewSection: {
+    marginBottom: 12,
+  },
+  locationLabel: {
+    fontSize: 13,
+    color: '#64748B',
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  coordinates: {
+    fontSize: 14,
+    color: '#2563EB',
+    fontWeight: '600',
     marginBottom: 8,
+  },
+  timestamp: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 8,
+  },
+  mapContainer: {
+    height: 140,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginTop: 4,
+  },
+  map: {
+    flex: 1,
+  },
+  noLocationContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+  },
+  noLocationIcon: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  noLocationText: {
+    fontSize: 13,
+    color: '#94A3B8',
+    textAlign: 'center',
   },
   actionButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 10,
+    gap: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
   },
-  actionButton: {
-    backgroundColor: '#2196F3',
-    padding: 8,
-    borderRadius: 5,
+  viewButton: {
+    flex: 2,
+    backgroundColor: '#2563EB',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  viewButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  editButton: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  editButtonText: {
+    color: '#475569',
+    fontSize: 14,
+    fontWeight: '600',
   },
   deleteButton: {
-    backgroundColor: '#F44336',
+    flex: 1,
+    backgroundColor: '#FEE2E2',
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
   },
-  actionButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+  deleteButtonText: {
+    color: '#DC2626',
+    fontSize: 14,
+    fontWeight: '600',
   },
   modalContainer: {
     flex: 1,
+    backgroundColor: '#F1F5F9',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     padding: 16,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
   },
   modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1E293B',
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeButtonText: {
     fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  modalContent: {
+    padding: 16,
+  },
+  modalStatusBadge: {
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+  },
+  modalSection: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  modalSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 8,
+  },
+  modalText: {
+    fontSize: 15,
+    color: '#334155',
+    lineHeight: 22,
+  },
+  modalDetailGrid: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  modalDetailItem: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+  },
+  modalLabel: {
+    fontSize: 13,
+    color: '#64748B',
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  modalValue: {
+    fontSize: 15,
+    color: '#1E293B',
+    fontWeight: '600',
+  },
+  modalCoordinates: {
+    fontSize: 14,
+    color: '#2563EB',
+    fontWeight: '600',
+    marginBottom: 12,
   },
   modalImage: {
-    width: 200,
-    height: 200,
-    marginVertical: 10,
-    borderRadius: 8,
-    alignSelf: 'center',
+    width: '100%',
+    height: 250,
+    borderRadius: 10,
+    marginTop: 8,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#4DB6AC',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 16,
-    backgroundColor: '#fff',
+  modalTimestamp: {
+    fontSize: 13,
+    color: '#94A3B8',
+    textAlign: 'center',
   },
-  locationText: {
-    marginVertical: 8,
-    fontSize: 14,
-    fontStyle: 'italic',
+  modalCloseButton: {
+    backgroundColor: '#DC2626',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginTop: 8,
   },
-  label: {
-    marginTop: 10,
+  modalCloseButtonText: {
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+    fontWeight: '600',
+  },
+  editFormContent: {
+    padding: 16,
+  },
+  inputLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#334155',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  textArea: {
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    backgroundColor: '#F8FAFC',
+    fontSize: 15,
+    color: '#1E293B',
+    minHeight: 100,
+    textAlignVertical: 'top',
   },
   dropdownWrapper: {
     marginBottom: 16,
@@ -707,193 +1069,259 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#4DB6AC',
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: '#fff',
-    minHeight: 50,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    padding: 14,
+    backgroundColor: '#F8FAFC',
+    minHeight: 52,
   },
   dropdownButtonText: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: 15,
+    color: '#1E293B',
     flex: 1,
   },
   placeholderText: {
-    color: '#999',
+    color: '#94A3B8',
   },
   dropdownArrow: {
-    fontSize: 12,
-    color: '#4DB6AC',
-    marginLeft: 10,
+    fontSize: 10,
+    color: '#64748B',
+    marginLeft: 8,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+  dropdownModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     maxHeight: 300,
-    width: '80%',
+    width: '85%',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   dropdownItem: {
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0F2F1',
+    borderBottomColor: '#F1F5F9',
   },
   selectedItem: {
-    backgroundColor: '#E0F2F1',
+    backgroundColor: '#EFF6FF',
   },
   dropdownItemText: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: 15,
+    color: '#334155',
   },
   selectedItemText: {
-    color: '#1A237E',
-    fontWeight: '500',
+    color: '#2563EB',
+    fontWeight: '600',
   },
-  modalButtonRow: {
+  mediaButton: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 20,
-  },
-  // New styles for enhanced location functionality
-  reportInfo: {
-    fontSize: 14,
-    marginBottom: 4,
-    color: '#333',
-  },
-  locationSection: {
-    marginVertical: 12,
-    padding: 12,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E0F2F1',
-  },
-  locationTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1A237E',
-    marginBottom: 8,
-  },
-  locationInfo: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    borderStyle: 'dashed',
+    borderRadius: 10,
+    padding: 16,
+    backgroundColor: '#F8FAFC',
     marginBottom: 12,
   },
-  coordinates: {
+  mediaButtonIcon: {
+    fontSize: 24,
+    marginRight: 8,
+  },
+  mediaButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  editImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 10,
+    marginBottom: 16,
+  },
+  locationEditSection: {
+    backgroundColor: '#FFFFFF',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 12,
+  },
+  locationButtonGroup: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  primaryButton: {
+    flex: 1,
+    backgroundColor: '#2563EB',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  secondaryButtonText: {
+    color: '#475569',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  manualInputSection: {
+    backgroundColor: '#F8FAFC',
+    padding: 14,
+    borderRadius: 10,
+    marginBottom: 16,
+  },
+  addressInputGroup: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  addressInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    fontSize: 15,
+    color: '#1E293B',
+  },
+  searchButton: {
+    backgroundColor: '#2563EB',
+    width: 44,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchButtonText: {
+    fontSize: 18,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#CBD5E1',
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 13,
+    color: '#94A3B8',
+    fontWeight: '600',
+  },
+  coordRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  coordInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    fontSize: 15,
+    color: '#1E293B',
+  },
+  setLocationButton: {
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  setLocationButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  locationPreview: {
+    backgroundColor: '#F8FAFC',
+    padding: 12,
+    borderRadius: 10,
+  },
+  coordDisplay: {
     fontSize: 14,
-    color: '#4DB6AC',
-    fontWeight: '500',
+    fontWeight: '600',
+    color: '#1E293B',
     marginBottom: 4,
   },
-  timestamp: {
-    fontSize: 12,
-    color: '#999',
-    marginBottom: 8,
+  addressDisplay: {
+    fontSize: 13,
+    color: '#64748B',
+    marginBottom: 12,
+    lineHeight: 18,
   },
-  mapContainer: {
-    height: 150,
-    borderRadius: 8,
+  mapWrapper: {
+    height: 180,
+    borderRadius: 10,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#4DB6AC',
-    backgroundColor: '#E8F4FD',
+    borderColor: '#CBD5E1',
   },
-  map: {
-    flex: 1,
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
   },
-  noLocationContainer: {
+  cancelButton: {
     flex: 1,
-    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    borderRadius: 10,
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  noLocationText: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-  },
-  // Modal specific styles
-  modalText: {
+  cancelButtonText: {
+    color: '#64748B',
     fontSize: 16,
-    marginBottom: 8,
-    color: '#333',
+    fontWeight: '600',
   },
-  modalLocationSection: {
-    marginVertical: 16,
-    padding: 12,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E0F2F1',
+  saveButton: {
+    flex: 2,
+    backgroundColor: '#DC2626',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  modalLocationTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1A237E',
-    marginBottom: 8,
-  },
-  modalCoordinates: {
-    fontSize: 14,
-    color: '#4DB6AC',
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  modalTimestamp: {
-    fontSize: 12,
-    color: '#999',
-    marginBottom: 12,
-  },
-  // Enhanced location section styles (same as report.tsx)
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1A237E',
-    marginBottom: 12,
-  },
-  locationButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 16,
-  },
-  manualLocationContainer: {
-    backgroundColor: '#F8F9FA',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  coordinateInputs: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  coordinateInput: {
-    flex: 0.48,
-    marginBottom: 0,
-  },
-  locationDisplay: {
-    backgroundColor: '#F0F8FF',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#4DB6AC',
-  },
-  locationDisplayText: {
-    marginVertical: 8,
-    fontSize: 14,
-    fontStyle: 'italic',
-    color: '#333',
-  },
-  addressText: {
-    marginVertical: 4,
-    fontSize: 14,
-    color: '#666',
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

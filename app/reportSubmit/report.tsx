@@ -1,4 +1,4 @@
-// Remove the sync logic from DamageReportForm and simplify it
+// Enhanced UI for Disaster Management App - Improved Design
 import { router } from 'expo-router';
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet, Image, Alert, KeyboardAvoidingView, Platform, TouchableOpacity, Modal, FlatList, ScrollView } from 'react-native';
@@ -12,10 +12,11 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth, db } from '../../FirebaseConfig';
 import BackButton from '../../components/BackButton';
 import { useSyncService } from '../contexts/SyncProvider';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps'; 
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+
 const CLOUDINARY_CONFIG = {
   cloudName: 'dkp01emhb',
-  uploadPreset: 'adadadad', 
+  uploadPreset: 'adadadad',
 };
 
 interface MediaItem {
@@ -109,15 +110,13 @@ export default function DamageReportForm() {
   ];
 
   useEffect(() => {
-    // Monitor auth state
     const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (!currentUser && id) {
-        setUser({ uid: id } as User); // Fallback to id if no user is logged in
+        setUser({ uid: id } as User);
       }
     });
 
-    // Monitor network status
     const unsubscribeNet = NetInfo.addEventListener((state) => {
       setIsOffline(!state.isConnected);
     });
@@ -140,7 +139,6 @@ export default function DamageReportForm() {
       });
       setLocation(loc.coords);
       
-      // Reverse geocode to get address
       const reverseGeocode = await Location.reverseGeocodeAsync({
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
@@ -271,18 +269,15 @@ export default function DamageReportForm() {
 
     try {
       if (isOffline) {
-        // Store report offline
         await AsyncStorage.setItem(`report-${Date.now()}`, JSON.stringify({ ...reportData, image }));
         Alert.alert('Success', 'Report saved offline. Will sync automatically when online.');
-        await refreshPendingCount(); // Update pending count
+        await refreshPendingCount();
       } else {
-        // Upload image to Cloudinary if present
         let mediaItem: MediaItem | null = null;
         if (image && typeof image === 'string') {
           mediaItem = await uploadToCloudinary(image, userId);
         }
 
-        // Save report to Firestore
         await addDoc(collection(db, 'reportData'), {
           ...reportData,
           media: mediaItem ? [mediaItem] : [],
@@ -290,7 +285,6 @@ export default function DamageReportForm() {
         Alert.alert('Success', 'Damage Report Submitted');
       }
 
-      // Reset form
       setDescription('');
       setImage(null);
       setLocation(null);
@@ -323,91 +317,138 @@ export default function DamageReportForm() {
       <ScrollView showsVerticalScrollIndicator={false}>
         <BackButton />
         
-        <Text style={styles.title}>Damage Reporting</Text>
-        <Text style={styles.userText}>User: {user?.email || `User-${id}`}</Text>
+        <View style={styles.header}>
+          <Text style={styles.title}>Disaster Report</Text>
+          <View style={styles.statusBadge}>
+            <View style={[styles.statusDot, { backgroundColor: isOffline ? '#FF6B6B' : '#4CAF50' }]} />
+            <Text style={styles.statusLabel}>{isOffline ? 'Offline' : 'Online'}</Text>
+          </View>
+        </View>
         
-        {/* Show pending reports status */}
         {pendingReports > 0 && (
-          <View style={styles.pendingReportsContainer}>
-            <Text style={styles.pendingReportsText}>
-              {pendingReports} report(s) pending sync
-            </Text>
-            <Button title="Sync Now" onPress={manualSync} color="#FF9800" />
+          <View style={styles.pendingCard}>
+            <View style={styles.pendingInfo}>
+              <Text style={styles.pendingIcon}>⚠️</Text>
+              <Text style={styles.pendingText}>{pendingReports} report(s) pending sync</Text>
+            </View>
+            <TouchableOpacity style={styles.syncButton} onPress={manualSync}>
+              <Text style={styles.syncButtonText}>Sync Now</Text>
+            </TouchableOpacity>
           </View>
         )}
-        
-        <TextInput
-          style={[styles.input, { height: 80 }]}
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Describe the damage"
-          multiline
-        />
-        <Button title="Pick Image/Video" onPress={pickImage} />
-        {image && <Image source={{ uri: image }} style={styles.imagePreview} />}
-        
-        {/* Enhanced Location Section */}
-        <View style={styles.locationSection}>
-          <Text style={styles.sectionTitle}>Location Information</Text>
+
+        <View style={styles.formCard}>
+          <Text style={styles.sectionLabel}>Description *</Text>
+          <TextInput
+            style={styles.textArea}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Describe the damage in detail..."
+            placeholderTextColor="#94A3B8"
+            multiline
+            numberOfLines={4}
+          />
+
+          <Text style={styles.sectionLabel}>Category *</Text>
+          <CustomDropdown
+            items={categories}
+            selectedValue={category}
+            onSelect={setCategory}
+            placeholder="Select disaster category"
+            style={styles.dropdownWrapper}
+          />
+
+          <Text style={styles.sectionLabel}>Severity *</Text>
+          <CustomDropdown
+            items={severities}
+            selectedValue={severity}
+            onSelect={setSeverity}
+            placeholder="Select severity level"
+            style={styles.dropdownWrapper}
+          />
+
+          <Text style={styles.sectionLabel}>Media (Optional)</Text>
+          <TouchableOpacity style={styles.mediaButton} onPress={pickImage}>
+            <Text style={styles.mediaButtonIcon}>📷</Text>
+            <Text style={styles.mediaButtonText}>
+              {image ? 'Change Media' : 'Add Photo/Video'}
+            </Text>
+          </TouchableOpacity>
+          {image && <Image source={{ uri: image }} style={styles.imagePreview} />}
+        </View>
+
+        <View style={styles.locationCard}>
+          <Text style={styles.cardTitle}>Location *</Text>
           
-          {/* Location Buttons */}
-          <View style={styles.locationButtons}>
-            <Button title="Get Current Location" onPress={getLocation} color="#4DB6AC" />
-            <Button 
-              title={showLocationInput ? "Hide Manual Input" : "Manual Input"} 
-              onPress={() => setShowLocationInput(!showLocationInput)} 
-              color="#FF9800" 
-            />
+          <View style={styles.locationButtonGroup}>
+            <TouchableOpacity style={styles.primaryButton} onPress={getLocation}>
+              <Text style={styles.primaryButtonText}>📍 Current Location</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.secondaryButton} 
+              onPress={() => setShowLocationInput(!showLocationInput)}
+            >
+              <Text style={styles.secondaryButtonText}>✏️ Manual Entry</Text>
+            </TouchableOpacity>
           </View>
-          
-          {/* Manual Location Input */}
+
           {showLocationInput && (
-            <View style={styles.manualLocationContainer}>
-              <Text style={styles.label}>Enter Address:</Text>
-              <TextInput
-                style={styles.input}
-                value={address}
-                onChangeText={setAddress}
-                placeholder="Enter full address"
-              />
-              <Button title="Find Address" onPress={geocodeAddress} color="#4DB6AC" />
-              
-              <Text style={styles.label}>Or Enter Coordinates:</Text>
-              <View style={styles.coordinateInputs}>
+            <View style={styles.manualInputSection}>
+              <Text style={styles.inputLabel}>Search Address</Text>
+              <View style={styles.addressInputGroup}>
                 <TextInput
-                  style={[styles.input, styles.coordinateInput]}
+                  style={styles.addressInput}
+                  value={address}
+                  onChangeText={setAddress}
+                  placeholder="Enter full address"
+                  placeholderTextColor="#94A3B8"
+                />
+                <TouchableOpacity style={styles.searchButton} onPress={geocodeAddress}>
+                  <Text style={styles.searchButtonText}>🔍</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>OR</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <Text style={styles.inputLabel}>Enter Coordinates</Text>
+              <View style={styles.coordRow}>
+                <TextInput
+                  style={styles.coordInput}
                   value={manualLat}
                   onChangeText={setManualLat}
                   placeholder="Latitude"
+                  placeholderTextColor="#94A3B8"
                   keyboardType="numeric"
                 />
                 <TextInput
-                  style={[styles.input, styles.coordinateInput]}
+                  style={styles.coordInput}
                   value={manualLon}
                   onChangeText={setManualLon}
                   placeholder="Longitude"
+                  placeholderTextColor="#94A3B8"
                   keyboardType="numeric"
                 />
               </View>
-              <Button title="Set Coordinates" onPress={setManualLocation} color="#4DB6AC" />
+              <TouchableOpacity style={styles.setLocationButton} onPress={setManualLocation}>
+                <Text style={styles.setLocationButtonText}>Set Location</Text>
+              </TouchableOpacity>
             </View>
           )}
-          
-          {/* Location Display */}
-          {location && (
-            <View style={styles.locationDisplay}>
-              <Text style={styles.locationText}>
-                📍 Lat: {location.latitude.toFixed(4)}, Lon: {location.longitude.toFixed(4)}
-              </Text>
-              {address && (
-                <Text style={styles.addressText}>
-                  📍 Address: {address}
+
+          {location ? (
+            <View style={styles.locationPreview}>
+              <View style={styles.coordDisplay}>
+                <Text style={styles.coordText}>
+                  📌 {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
                 </Text>
-              )}
+                {address && <Text style={styles.addressDisplay}>{address}</Text>}
+              </View>
               
-              {/* Small Map View */}
-              <View style={styles.mapContainer}>
-                <Text style={styles.debugText}>Map should appear here</Text>
+              <View style={styles.mapWrapper}>
                 <MapView
                   style={styles.map}
                   provider={PROVIDER_GOOGLE}
@@ -420,8 +461,7 @@ export default function DamageReportForm() {
                   showsUserLocation={true}
                   showsMyLocationButton={false}
                   loadingEnabled={true}
-                  loadingIndicatorColor="#4DB6AC"
-                  onMapReady={() => console.log('Map is ready')}
+                  loadingIndicatorColor="#2563EB"
                 >
                   <Marker
                     coordinate={{
@@ -434,47 +474,23 @@ export default function DamageReportForm() {
                 </MapView>
               </View>
             </View>
-          )}
-          
-          {/* Debug: Show map even without location for testing */}
-          {!location && (
-            <View style={styles.locationDisplay}>
-              <Text style={styles.debugText}>No location set yet. Get location or enter manually to see map.</Text>
-              <View style={styles.mapContainer}>
-                <Text style={styles.debugText}>Map will appear here once location is set</Text>
-                <View style={styles.placeholderMap}>
-                  <Text style={styles.mapPlaceholderText}>🗺️ Map Placeholder</Text>
-                  <Text style={styles.placeholderSubtext}>Set a location to see the map</Text>
-                </View>
-              </View>
+          ) : (
+            <View style={styles.noLocationCard}>
+              <Text style={styles.noLocationIcon}>🗺️</Text>
+              <Text style={styles.noLocationText}>No location set</Text>
+              <Text style={styles.noLocationHint}>Please capture or enter location</Text>
             </View>
           )}
         </View>
-        
-        <Text style={styles.label}>Select Damage Category</Text>
-        <CustomDropdown
-          items={categories}
-          selectedValue={category}
-          onSelect={setCategory}
-          placeholder="Choose category"
-          style={styles.dropdownWrapper}
-        />
-        <Text style={styles.label}>Select Severity</Text>
-        <CustomDropdown
-          items={severities}
-          selectedValue={severity}
-          onSelect={setSeverity}
-          placeholder="Choose severity"
-          style={styles.dropdownWrapper}
-        />
-        <View style={styles.buttonRow}>
-          <Button title="Submit" onPress={handleSubmit} />
-          <Button title="Cancel" color="red" onPress={handleCancel} />
+
+        <View style={styles.actionButtons}>
+          <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
+            <Text style={styles.cancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
+            <Text style={styles.submitButtonText}>Submit Report</Text>
+          </TouchableOpacity>
         </View>
-        <Text style={styles.statusText}>
-          Status: {isOffline ? 'Offline' : 'Online'}
-          {pendingReports > 0 && ` • ${pendingReports} pending`}
-        </Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -483,145 +499,113 @@ export default function DamageReportForm() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: '#F1F5F9',
   },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 20,
-    textAlign: 'center',
-    color: '#1A237E',
-  },
-  userText: {
-    fontSize: 16,
-    marginBottom: 16,
-    textAlign: 'center',
-    color: '#333',
-  },
-  pendingReportsContainer: {
-    backgroundColor: '#FFF3E0',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 16,
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderLeftWidth: 4,
-    borderLeftColor: '#FF9800',
-  },
-  pendingReportsText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#E65100',
-    fontWeight: '500',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#4DB6AC',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 16,
-    backgroundColor: '#fff',
-  },
-  imagePreview: {
-    width: 150,
-    height: 150,
-    marginVertical: 10,
-    borderRadius: 8,
-    alignSelf: 'center',
-  },
-  locationText: {
-    marginVertical: 8,
-    fontSize: 14,
-    fontStyle: 'italic',
-    color: '#333',
-  },
-  addressText: {
-    marginVertical: 4,
-    fontSize: 14,
-    color: '#666',
-  },
-  locationSection: {
-    marginVertical: 16,
-    padding: 16,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E0F2F1',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1A237E',
-    marginBottom: 12,
-  },
-  locationButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 16,
-  },
-  manualLocationContainer: {
-    backgroundColor: '#F8F9FA',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 16,
-  },
-  coordinateInputs: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  coordinateInput: {
-    flex: 0.48,
-    marginBottom: 0,
-  },
-  locationDisplay: {
-    backgroundColor: '#F0F8FF',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#4DB6AC',
-  },
-  mapContainer: {
-    height: 200,
-    marginTop: 12,
-    borderRadius: 8,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#4DB6AC',
-  },
-  map: {
-    flex: 1,
-  },
-  debugText: {
-    fontSize: 12,
-    color: '#666',
-    fontStyle: 'italic',
-    marginBottom: 4,
-  },
-  placeholderMap: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#E8F4FD',
-    borderRadius: 8,
-  },
-  mapPlaceholderText: {
-    fontSize: 24,
-    color: '#4DB6AC',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     marginBottom: 8,
   },
-  placeholderSubtext: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
+  title: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#1E293B',
   },
-  label: {
-    marginTop: 10,
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  statusLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  pendingCard: {
+    backgroundColor: '#FEF3C7',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pendingInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  pendingIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  pendingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400E',
+    flex: 1,
+  },
+  syncButton: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  syncButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  formCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  sectionLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#334155',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  textArea: {
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    backgroundColor: '#F8FAFC',
+    fontSize: 15,
+    color: '#1E293B',
+    minHeight: 100,
+    textAlignVertical: 'top',
   },
   dropdownWrapper: {
     marginBottom: 16,
@@ -631,67 +615,300 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#4DB6AC',
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: '#fff',
-    minHeight: 50,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    padding: 14,
+    backgroundColor: '#F8FAFC',
+    minHeight: 52,
   },
   dropdownButtonText: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: 15,
+    color: '#1E293B',
     flex: 1,
   },
   placeholderText: {
-    color: '#999',
+    color: '#94A3B8',
   },
   dropdownArrow: {
-    fontSize: 12,
-    color: '#4DB6AC',
-    marginLeft: 10,
+    fontSize: 10,
+    color: '#64748B',
+    marginLeft: 8,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     maxHeight: 300,
-    width: '80%',
+    width: '85%',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   dropdownItem: {
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0F2F1',
+    borderBottomColor: '#F1F5F9',
   },
   selectedItem: {
-    backgroundColor: '#E0F2F1',
+    backgroundColor: '#EFF6FF',
   },
   dropdownItemText: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: 15,
+    color: '#334155',
   },
   selectedItemText: {
-    color: '#1A237E',
-    fontWeight: '500',
+    color: '#2563EB',
+    fontWeight: '600',
   },
-  buttonRow: {
+  mediaButton: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    borderStyle: 'dashed',
+    borderRadius: 10,
+    padding: 16,
+    backgroundColor: '#F8FAFC',
+    marginBottom: 12,
   },
-  statusText: {
-    marginTop: 10,
+  mediaButtonIcon: {
+    fontSize: 24,
+    marginRight: 8,
+  },
+  mediaButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  imagePreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 10,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  locationCard: {
+    backgroundColor: '#FFFFFF',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 14,
+  },
+  locationButtonGroup: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  primaryButton: {
+    flex: 1,
+    backgroundColor: '#2563EB',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  secondaryButtonText: {
+    color: '#475569',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  manualInputSection: {
+    backgroundColor: '#F8FAFC',
+    padding: 14,
+    borderRadius: 10,
+    marginBottom: 16,
+  },
+  inputLabel: {
     fontSize: 14,
-    color: '#333',
-    textAlign: 'center',
+    fontWeight: '600',
+    color: '#475569',
+    marginBottom: 8,
+  },
+  addressInputGroup: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  addressInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    fontSize: 15,
+    color: '#1E293B',
+  },
+  searchButton: {
+    backgroundColor: '#2563EB',
+    width: 44,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchButtonText: {
+    fontSize: 18,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#CBD5E1',
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 13,
+    color: '#94A3B8',
+    fontWeight: '600',
+  },
+  coordRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  coordInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
+    fontSize: 15,
+    color: '#1E293B',
+  },
+  setLocationButton: {
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  setLocationButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  locationPreview: {
+    backgroundColor: '#F8FAFC',
+    padding: 12,
+    borderRadius: 10,
+  },
+  coordDisplay: {
+    marginBottom: 12,
+  },
+  coordText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  addressDisplay: {
+    fontSize: 13,
+    color: '#64748B',
+    lineHeight: 18,
+  },
+  mapWrapper: {
+    height: 180,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  map: {
+    flex: 1,
+  },
+  noLocationCard: {
+    backgroundColor: '#F8FAFC',
+    padding: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  noLocationIcon: {
+    fontSize: 40,
+    marginBottom: 8,
+  },
+  noLocationText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#475569',
+    marginBottom: 4,
+  },
+  noLocationHint: {
+    fontSize: 13,
+    color: '#94A3B8',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  cancelButtonText: {
+    color: '#64748B',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  submitButton: {
+    flex: 2,
+    backgroundColor: '#DC2626',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    shadowColor: '#DC2626',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  submitButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

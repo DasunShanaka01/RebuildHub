@@ -1,12 +1,49 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, Dimensions } from "react-native";
-import { collection, onSnapshot, updateDoc, doc } from "firebase/firestore";
 import { db } from "../../FirebaseConfig";
 import BackButton from '../../components/BackButton';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import Icon from 'react-native-vector-icons/Ionicons';
+import { useRouter } from 'expo-router';
+import { collection, onSnapshot, updateDoc, doc, query, orderBy, limit } from "firebase/firestore";
+import { Alert } from 'react-native';
+
+const getSeverityColor = (severity: string) => {
+  switch (severity?.toLowerCase()) {
+    case 'high': return '#DC2626';
+    case 'medium': return '#F59E0B';
+    case 'low': return '#10B981';
+    default: return '#64748B';
+  }
+};
+
+const getStatusColor = (status: string) => {
+  switch (status?.toLowerCase()) {
+    case 'approved': return '#10B981';
+    case 'rejected': return '#DC2626';
+    case 'in-progress': return '#2563EB';
+    case 'pending': return '#F59E0B';
+    default: return '#64748B';
+  }
+};
+
+const getCategoryIcon = (category: string) => {
+  switch (category?.toLowerCase()) {
+    case 'earthquakes': return '🏚️';
+    case 'tsunamis': return '🌊';
+    case 'landslides': return '⛰️';
+    case 'floods': return '💧';
+    case 'droughts': return '🌵';
+    case 'wildfires': return '🔥';
+    default: return '⚠️';
+  }
+};
 
 export default function NGOReportView() {
   const [reports, setReports] = useState<any[]>([]);
+  const [filter, setFilter] = useState<string>('all');
+  const [latestEmergencyId, setLatestEmergencyId] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "reportData"), (snapshot) => {
@@ -20,13 +57,44 @@ export default function NGOReportView() {
     await updateDoc(doc(db, "reportData", id), { reportStatus: status });
   };
 
-  // Small Map Component for each report
+  const filteredReports = filter === 'all' 
+    ? reports 
+    : reports.filter(report => report.reportStatus === filter);
+
+  const getStatusCounts = () => {
+    return {
+      all: reports.length,
+      pending: reports.filter(r => r.reportStatus === 'pending').length,
+      approved: reports.filter(r => r.reportStatus === 'approved').length,
+    };
+  };
+
+
+   useEffect(() => {
+    const q = query(
+      collection(db, "emergencies"),
+      orderBy("createdAt", "desc"),
+      limit(1)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        setLatestEmergencyId(snapshot.docs[0].id);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const counts = getStatusCounts();
+
   const SmallMap = ({ location, address }: { location: any; address?: string }) => {
     if (!location || !location.latitude || !location.longitude) {
       return (
         <View style={styles.mapContainer}>
           <View style={styles.noLocationContainer}>
-            <Text style={styles.noLocationText}>📍 No Location Data</Text>
+            <Text style={styles.noLocationIcon}>📍</Text>
+            <Text style={styles.noLocationText}>No Location Data</Text>
           </View>
         </View>
       );
@@ -46,7 +114,7 @@ export default function NGOReportView() {
           showsUserLocation={false}
           showsMyLocationButton={false}
           loadingEnabled={true}
-          loadingIndicatorColor="#4DB6AC"
+          loadingIndicatorColor="#2563EB"
           scrollEnabled={false}
           zoomEnabled={false}
           pitchEnabled={false}
@@ -66,144 +134,353 @@ export default function NGOReportView() {
   };
 
   const renderItem = ({ item }: { item: any }) => (
-    <View style={styles.card}>
-      <Text style={styles.title}>{item.category} - {item.severity}</Text>
-      <Text style={styles.description}>Description: {item.description}</Text>
-      <Text style={styles.status}>Status: {item.reportStatus}</Text>
-      
-      {/* Location Information */}
+    <View style={styles.reportCard}>
+      <View style={styles.cardHeader}>
+        <View style={styles.headerLeftRow}>
+          <Text style={styles.categoryIcon}>{getCategoryIcon(item.category)}</Text>
+          <View style={styles.headerText}>
+            <Text style={styles.categoryText}>{item.category}</Text>
+            <View style={[styles.severityBadge, { backgroundColor: getSeverityColor(item.severity) }]}>
+              <Text style={styles.severityText}>{item.severity}</Text>
+            </View>
+          </View>
+        </View>
+        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.reportStatus) + '20' }]}>
+          <Text style={[styles.statusText, { color: getStatusColor(item.reportStatus) }]}>
+            {item.reportStatus?.toUpperCase() || 'PENDING'}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.descriptionSection}>
+        <Text style={styles.descriptionLabel}>Description</Text>
+        <Text style={styles.descriptionText} numberOfLines={3}>{item.description}</Text>
+      </View>
+
       <View style={styles.locationSection}>
-        <Text style={styles.locationTitle}>📍 Location Information</Text>
+        <Text style={styles.locationLabel}>Location</Text>
         {item.location ? (
-          <View style={styles.locationInfo}>
+          <>
             <Text style={styles.coordinates}>
-              Lat: {item.location.latitude?.toFixed(4) || 'N/A'}, 
-              Lon: {item.location.longitude?.toFixed(4) || 'N/A'}
+              {item.location.latitude?.toFixed(4)}, {item.location.longitude?.toFixed(4)}
             </Text>
             {item.address && (
-              <Text style={styles.address}>Address: {item.address}</Text>
+              <Text style={styles.address}>{item.address}</Text>
             )}
+            <SmallMap location={item.location} address={item.address} />
             <Text style={styles.timestamp}>
               Reported: {item.timestamp?.toDate ? 
-                item.timestamp.toDate().toLocaleString() : 
-                new Date(item.timestamp).toLocaleString()}
+                item.timestamp.toDate().toLocaleDateString() + ' at ' + item.timestamp.toDate().toLocaleTimeString() : 
+                new Date(item.timestamp).toLocaleDateString() + ' at ' + new Date(item.timestamp).toLocaleTimeString()}
             </Text>
-          </View>
+          </>
         ) : (
           <Text style={styles.noLocationText}>No location data available</Text>
         )}
-        
-        {/* Small Map View */}
-        <SmallMap location={item.location} address={item.address} />
       </View>
 
-      <View style={styles.row}>
-        <TouchableOpacity style={[styles.button, { backgroundColor: "#4CAF50" }]} onPress={() => updateStatus(item.id, "approved")}>
-          <Text style={styles.btnText}>Approve</Text>
+      <View style={styles.actionButtons}>
+
+        {item.reportStatus?.toLowerCase() !== 'approved' && (
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.approveButton]} 
+          onPress={() => updateStatus(item.id, "approved")}
+        >
+          <Text style={styles.actionButtonText}>✓ Approve</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.button, { backgroundColor: "#F44336" }]} onPress={() => updateStatus(item.id, "rejected")}>
-          <Text style={styles.btnText}>Reject</Text>
+      )}
+      
+        {/* <TouchableOpacity 
+          style={[styles.actionButton, styles.progressButton]} 
+          onPress={() => updateStatus(item.id, "in-progress")}
+        >
+          <Text style={styles.actionButtonText}>⟳ In Progress</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.button, { backgroundColor: "#2196F3" }]} onPress={() => updateStatus(item.id, "in-progress")}>
-          <Text style={styles.btnText}>In Progress</Text>
-        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.actionButton, styles.rejectButton]} 
+          onPress={() => updateStatus(item.id, "rejected")}
+        >
+          <Text style={styles.actionButtonText}>✕ Reject</Text>
+        </TouchableOpacity> */}
       </View>
     </View>
   );
 
   return (
-    <View style={{ flex: 1, padding: 16, backgroundColor: "#f9f9f9" }}>
-        <BackButton />
-      <Text style={styles.header}>NGO Dashboard</Text>
-        
-      <FlatList
-        data={reports}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={{ paddingBottom: 20 }}
-      />
+    <View style={styles.container}>
+      <BackButton />
+      
+      {/* <View style={styles.header}>
+        <Text style={styles.title}>NGO Dashboard</Text>
+        <Text style={styles.subtitle}>Manage disaster reports</Text>
+      </View>
+
+      <View>
+        <Text style={styles.title}>Emergency Request</Text>
+        <Text style={styles.subtitle}>notification icon</Text>
+      </View> */}
+      <View style={styles.headerContainer}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.title}>NGO Dashboard</Text>
+            <Text style={styles.subtitle}>Manage disaster reports</Text>
+          </View>
+        <TouchableOpacity 
+          style={styles.notificationButton}
+          onPress={async () => {
+            if (latestEmergencyId) {
+              router.push({
+                pathname: '/Emergency/notification',
+                params: { emergencyId: latestEmergencyId }
+              });
+            } else {
+              Alert.alert("No Emergency", "No emergency requests available");
+            }
+          }}
+        >
+          <Icon name="notifications" size={24} color="#2563EB" />
+          {latestEmergencyId && (
+            <View style={styles.notificationBadge}>
+              <Text style={styles.badgeText}>!</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+        </View>
+
+      <View style={styles.filterSection}>
+        <TouchableOpacity 
+          style={[styles.filterButton, filter === 'all' && styles.filterButtonActive]}
+          onPress={() => setFilter('all')}
+        >
+          <Text style={[styles.filterText, filter === 'all' && styles.filterTextActive]}>
+            All ({counts.all})
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.filterButton, filter === 'pending' && styles.filterButtonActive]}
+          onPress={() => setFilter('pending')}
+        >
+          <Text style={[styles.filterText, filter === 'pending' && styles.filterTextActive]}>
+            Pending ({counts.pending})
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.filterButton, filter === 'approved' && styles.filterButtonActive]}
+          onPress={() => setFilter('approved')}
+        >
+          <Text style={[styles.filterText, filter === 'approved' && styles.filterTextActive]}>
+            Approved ({counts.approved})
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {filteredReports.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyIcon}>📋</Text>
+          <Text style={styles.emptyTitle}>No Reports</Text>
+          <Text style={styles.emptyText}>
+            {filter === 'all' 
+              ? 'No disaster reports submitted yet' 
+              : `No ${filter} reports found`}
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredReports}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 16,
-    textAlign: "center",
-    color: "#1A237E",
+  container: {
+    flex: 1,
+    backgroundColor: "#F1F5F9",
+    paddingTop: 16,
   },
-  card: {
-    backgroundColor: "#fff",
-    padding: 16,
-    marginBottom: 12,
-    borderRadius: 10,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
+  header: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
   },
   title: {
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#1E293B",
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 15,
+    color: "#64748B",
+  },
+  filterSection: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    gap: 8,
+  },
+  filterButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+  },
+  filterButtonActive: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
+  },
+  filterText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  filterTextActive: {
+    color: '#FFFFFF',
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  emptyIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E293B',
     marginBottom: 8,
-    color: "#1A237E",
   },
-  description: {
-    fontSize: 14,
-    marginBottom: 6,
-    color: "#333",
-    lineHeight: 20,
+  emptyText: {
+    fontSize: 15,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 22,
   },
-  status: {
-    fontSize: 14,
+  reportCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 12,
-    color: "#666",
-    fontWeight: "500",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  headerLeftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  categoryIcon: {
+    fontSize: 32,
+    marginRight: 12,
+  },
+  headerText: {
+    flex: 1,
+  },
+  categoryText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 6,
+  },
+  severityBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  severityText: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  descriptionSection: {
+    marginBottom: 14,
+  },
+  descriptionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+    marginBottom: 6,
+  },
+  descriptionText: {
+    fontSize: 15,
+    color: '#334155',
+    lineHeight: 22,
   },
   locationSection: {
-    marginVertical: 12,
+    backgroundColor: '#F8FAFC',
     padding: 12,
-    backgroundColor: "#F8F9FA",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#E0F2F1",
+    borderRadius: 10,
+    marginBottom: 14,
   },
-  locationTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#1A237E",
-    marginBottom: 8,
-  },
-  locationInfo: {
-    marginBottom: 12,
+  locationLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+    marginBottom: 6,
   },
   coordinates: {
     fontSize: 14,
-    color: "#4DB6AC",
-    fontWeight: "500",
+    color: '#2563EB',
+    fontWeight: '600',
     marginBottom: 4,
   },
   address: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
-    fontStyle: "italic",
+    fontSize: 13,
+    color: '#64748B',
+    marginBottom: 8,
+    lineHeight: 18,
   },
   timestamp: {
     fontSize: 12,
-    color: "#999",
-    marginBottom: 8,
+    color: '#94A3B8',
+    marginTop: 8,
   },
   mapContainer: {
-    height: 150,
+    height: 140,
     borderRadius: 8,
     overflow: "hidden",
+    backgroundColor: "#F8FAFC",
     borderWidth: 1,
-    borderColor: "#4DB6AC",
-    backgroundColor: "#E8F4FD",
+    borderColor: "#E2E8F0",
+    marginTop: 8,
   },
   map: {
     flex: 1,
@@ -212,28 +489,72 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#F5F5F5",
+    backgroundColor: "#F8FAFC",
+  },
+  noLocationIcon: {
+    fontSize: 32,
+    marginBottom: 8,
   },
   noLocationText: {
-    fontSize: 14,
-    color: "#999",
+    fontSize: 13,
+    color: "#94A3B8",
     textAlign: "center",
   },
-  row: {
+  actionButtons: {
     flexDirection: "row",
-    marginTop: 12,
-    justifyContent: "space-around",
+    gap: 8,
   },
-  button: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-    minWidth: 80,
+  actionButton: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 8,
     alignItems: "center",
+    justifyContent: 'center',
   },
-  btnText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 12,
+  approveButton: {
+    backgroundColor: "#10B981",
+  },
+  progressButton: {
+    backgroundColor: "#2563EB",
+  },
+  rejectButton: {
+    backgroundColor: "#DC2626",
+  },
+  actionButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+   headerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  notificationButton: {
+    position: 'relative',
+    padding: 8,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 50,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: '#DC2626',
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 });

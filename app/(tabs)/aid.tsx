@@ -11,11 +11,13 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
-  PermissionsAndroid,
   FlatList,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Picker } from '@react-native-picker/picker';
 import {
   collection,
@@ -24,13 +26,12 @@ import {
   query,
   where,
   onSnapshot,
-  /* orderBy, */
   doc,
   updateDoc,
 } from 'firebase/firestore';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import * as Location from 'expo-location';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { auth, db } from '@/FirebaseConfig';
 
@@ -57,6 +58,7 @@ interface AidRequest extends AidRequestForm {
   createdAt?: any;
   updatedAt?: any;
   userId?: string;
+  rating?: number;
 }
 
 export default function AidScreen() {
@@ -87,9 +89,215 @@ export default function AidScreen() {
   const [unsubscribeRequests, setUnsubscribeRequests] = useState<(() => void) | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<AidRequest | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [pendingRating, setPendingRating] = useState<number>(0);
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
+  const [trackingRequest, setTrackingRequest] = useState<AidRequest | null>(null);
+  const [userLocation, setUserLocation] = useState<{latitude: number, longitude: number} | null>(null);
+  const [ngoLocation, setNgoLocation] = useState<{latitude: number, longitude: number} | null>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<{latitude: number, longitude: number}[]>([]);
+  const [routeInfo, setRouteInfo] = useState<{distance: string, duration: string, steps: any[]} | null>(null);
+  const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
+  const [isUsingFallbackRoute, setIsUsingFallbackRoute] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackRequest, setFeedbackRequest] = useState<AidRequest | null>(null);
+  const [feedbackRating, setFeedbackRating] = useState<number>(0);
   const mapRef = useRef<MapView | null>(null);
+  const trackingMapRef = useRef<MapView | null>(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  // Mock NGO location - in a real app, this would come from your database
+  const NGO_LOCATION = {
+    latitude: 6.9271, // Colombo, Sri Lanka
+    longitude: 79.8612,
+    name: "Emergency Response Center"
+  };
+
+  const calculateRoute = async (start: {latitude: number, longitude: number}, end: {latitude: number, longitude: number}) => {
+    try {
+      // Using Google Directions API for real road routing
+      const API_KEY = 'YOUR_GOOGLE_MAPS_API_KEY'; // Replace with your actual API key
+      const origin = `${start.latitude},${start.longitude}`;
+      const destination = `${end.latitude},${end.longitude}`;
+      
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&key=${API_KEY}&mode=driving&avoid=tolls`
+      );
+      
+      const data = await response.json();
+      
+      if (data.status === 'OK' && data.routes.length > 0) {
+        const route = data.routes[0];
+        const coordinates: {latitude: number, longitude: number}[] = [];
+        
+        // Decode the polyline to get coordinates
+        route.legs.forEach((leg: any) => {
+          leg.steps.forEach((step: any) => {
+            const decoded = decodePolyline(step.polyline.points);
+            coordinates.push(...decoded);
+          });
+        });
+        
+        return {
+          coordinates,
+          distance: route.legs[0].distance.text,
+          duration: route.legs[0].duration.text,
+          steps: route.legs[0].steps
+        };
+      } else {
+        // Fallback to straight line if API fails
+        console.warn('Google Directions API failed, using straight line fallback');
+        console.log('API Response:', data);
+        setIsUsingFallbackRoute(true);
+        return calculateStraightLineRoute(start, end);
+      }
+    } catch (error) {
+      console.error('Error calculating route:', error);
+      // Fallback to straight line
+      setIsUsingFallbackRoute(true);
+      return calculateStraightLineRoute(start, end);
+    }
+  };
+
+  const calculateStraightLineRoute = (start: {latitude: number, longitude: number}, end: {latitude: number, longitude: number}) => {
+    const steps = 50; // More points for smoother line
+    const coordinates = [];
+    
+    for (let i = 0; i <= steps; i++) {
+      const ratio = i / steps;
+      const lat = start.latitude + (end.latitude - start.latitude) * ratio;
+      const lng = start.longitude + (end.longitude - start.longitude) * ratio;
+      coordinates.push({ latitude: lat, longitude: lng });
+    }
+    
+    // Calculate approximate distance and duration
+    const distance = calculateDistance(start, end);
+    const estimatedDuration = Math.round(distance * 1.5); // Rough estimate: 1.5 minutes per km
+    
+    return {
+      coordinates,
+      distance: `${distance.toFixed(1)} km`,
+      duration: `${estimatedDuration} mins`,
+      steps: []
+    };
+  };
+
+  // Calculate distance between two points using Haversine formula
+  const calculateDistance = (point1: {latitude: number, longitude: number}, point2: {latitude: number, longitude: number}) => {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (point2.latitude - point1.latitude) * Math.PI / 180;
+    const dLng = (point2.longitude - point1.longitude) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(point1.latitude * Math.PI / 180) * Math.cos(point2.latitude * Math.PI / 180) * 
+      Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Decode Google's polyline encoding
+  const decodePolyline = (encoded: string): {latitude: number, longitude: number}[] => {
+    const poly: {latitude: number, longitude: number}[] = [];
+    let index = 0;
+    const len = encoded.length;
+    let lat = 0;
+    let lng = 0;
+
+    while (index < len) {
+      let b, shift = 0, result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lat += dlat;
+
+      shift = 0;
+      result = 0;
+      do {
+        b = encoded.charCodeAt(index++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+      lng += dlng;
+
+      poly.push({
+        latitude: lat / 1e5,
+        longitude: lng / 1e5
+      });
+    }
+    return poly;
+  };
+
+  const openTrackingModal = async (request: AidRequest) => {
+    setTrackingRequest(request);
+    setShowTrackingModal(true);
+    
+    // Get user's current location
+    try {
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const userLoc = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude
+      };
+      setUserLocation(userLoc);
+      
+      // Set NGO location
+      const ngoLoc = {
+        latitude: NGO_LOCATION.latitude,
+        longitude: NGO_LOCATION.longitude
+      };
+      setNgoLocation(ngoLoc);
+      
+      // Calculate route
+      setIsCalculatingRoute(true);
+      try {
+        const route = await calculateRoute(ngoLoc, userLoc);
+        setRouteCoordinates(route.coordinates);
+        setRouteInfo({
+          distance: route.distance,
+          duration: route.duration,
+          steps: route.steps
+        });
+      } catch (routeError) {
+        console.error('Route calculation failed:', routeError);
+        // Set fallback route info
+        setRouteInfo({
+          distance: 'Route unavailable',
+          duration: 'Route unavailable',
+          steps: []
+        });
+      } finally {
+        setIsCalculatingRoute(false);
+      }
+      
+    } catch (error) {
+      console.error('Error getting user location:', error);
+      Alert.alert('Error', 'Could not get your current location. Please ensure location services are enabled.');
+    }
+  };
+
+  const closeTrackingModal = () => {
+    setShowTrackingModal(false);
+    setTrackingRequest(null);
+    setUserLocation(null);
+    setNgoLocation(null);
+    setRouteCoordinates([]);
+    setRouteInfo(null);
+    setIsCalculatingRoute(false);
+    setIsUsingFallbackRoute(false);
+  };
 
   useEffect(() => {
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 600,
+      useNativeDriver: true,
+    }).start();
+
     checkLocationPermission();
     const unsubAuth = onAuthStateChanged(auth, (u) => {
       setCurrentUser(u);
@@ -125,13 +333,10 @@ export default function AidScreen() {
     const q = query(
       collection(db, 'aid_requests'),
       where('userId', '==', userId)
-      // Removed orderBy('createdAt', 'desc') to avoid needing a composite index
     );
     return onSnapshot(q, (snapshot) => {
       const list: AidRequest[] = snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<AidRequest, 'id'>) }));
-      // Exclude cancelled requests
       const visible = list.filter((r) => r.status !== 'Cancelled');
-      // Sort client-side by createdAt descending if present
       visible.sort((a, b) => {
         const aTs = a.createdAt?.seconds ?? 0;
         const bTs = b.createdAt?.seconds ?? 0;
@@ -176,9 +381,6 @@ export default function AidScreen() {
       const gpsString = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
       setFormData(prev => ({ ...prev, gpsLocation: gpsString }));
 
-      // Removed success alert to avoid popup on GPS capture
-
-      // Center the form map on the live location
       try {
         mapRef.current?.animateToRegion({
           latitude,
@@ -270,10 +472,28 @@ export default function AidScreen() {
 
   const getUrgencyColor = (level: string) => {
     switch (level) {
-      case 'Low': return '#4CAF50';
-      case 'Medium': return '#FF9800';
-      case 'High': return '#F44336';
-      default: return '#FF9800';
+      case 'Low': return '#10B981';
+      case 'Medium': return '#F59E0B';
+      case 'High': return '#EF4444';
+      default: return '#F59E0B';
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Requested': return '#3B82F6';
+      case 'In Progress': return '#8B5CF6';
+      case 'Delivered': return '#10B981';
+      default: return '#6B7280';
+    }
+  };
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'Requested': return 'time-outline';
+      case 'In Progress': return 'hourglass-outline';
+      case 'Delivered': return 'checkmark-circle-outline';
+      default: return 'help-circle-outline';
     }
   };
 
@@ -294,6 +514,7 @@ export default function AidScreen() {
 
   const onPressView = (request: AidRequest) => {
     setSelectedRequest(request);
+    setPendingRating(request.rating || 0);
     setIsDetailOpen(true);
   };
 
@@ -317,53 +538,208 @@ export default function AidScreen() {
     );
   };
 
+  const saveRating = async (requestId: string, rating: number) => {
+    try {
+      if (selectedRequest?.rating && selectedRequest.rating > 0) {
+        Alert.alert('Already rated', 'You have already submitted a rating for this request.');
+        return;
+      }
+      await updateDoc(doc(db, 'aid_requests', requestId), {
+        rating,
+        updatedAt: serverTimestamp(),
+      });
+      setSelectedRequest((prev) => prev ? { ...prev, rating } : prev);
+      Alert.alert('Thanks!', 'Your feedback has been recorded.');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save rating. Please try again.');
+    }
+  };
+
+  const confirmAidReceived = (request: AidRequest) => {
+    Alert.alert(
+      'Confirm Aid Received',
+      'Have you received the aid assistance? This will mark your request as completed.',
+      [
+        { text: 'No', style: 'cancel' },
+        { text: 'Yes, I received it', style: 'default', onPress: () => {
+          setFeedbackRequest(request);
+          setFeedbackRating(0);
+          setShowFeedbackModal(true);
+        }},
+      ]
+    );
+  };
+
+  const submitFeedback = async () => {
+    if (!feedbackRequest || feedbackRating === 0) {
+      Alert.alert('Please Rate', 'Please select a rating before submitting feedback.');
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, 'aid_requests', feedbackRequest.id), {
+        status: 'Delivered',
+        rating: feedbackRating,
+        updatedAt: serverTimestamp(),
+      });
+      
+      setShowFeedbackModal(false);
+      setFeedbackRequest(null);
+      setFeedbackRating(0);
+      
+      Alert.alert(
+        'Thank You!', 
+        'Your feedback has been recorded and your request is now marked as delivered.'
+      );
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save feedback. Please try again.');
+    }
+  };
+
+  const closeFeedbackModal = () => {
+    setShowFeedbackModal(false);
+    setFeedbackRequest(null);
+    setFeedbackRating(0);
+  };
+
   const renderRequestItem = ({ item }: { item: AidRequest }) => {
     const canEditOrCancel = item.status === 'Requested';
+    const aidTypesList = ['food','water','medicine','shelter']
+      .filter((k) => (item.aidTypes as any)[k])
+      .map(k => k.charAt(0).toUpperCase() + k.slice(1));
     
     return (
-      <TouchableOpacity style={styles.card} onPress={() => onPressView(item)} activeOpacity={0.85}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>{item.fullName}</Text>
-          {canEditOrCancel && (
-            <View style={styles.cardActions}>
-              <TouchableOpacity onPress={() => onPressEdit(item)} style={styles.editButton}>
-                <Text style={styles.actionText}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => onPressCancel(item)} style={styles.cancelButton}>
-                <Text style={styles.actionText}>Cancel</Text>
-              </TouchableOpacity>
+      <TouchableOpacity 
+        style={styles.modernCard} 
+        onPress={() => onPressView(item)} 
+        activeOpacity={0.7}
+      >
+        <View style={styles.cardTopSection}>
+          <View style={styles.cardHeaderRow}>
+            <View style={styles.avatarCircle}>
+              <MaterialIcons name="person" size={24} color="#fff" />
+            </View>
+            <View style={styles.cardTitleSection}>
+              <Text style={styles.modernCardTitle}>{item.fullName}</Text>
+              <Text style={styles.cardSubtitle}>NIC: {item.nicNumber}</Text>
+            </View>
+          </View>
+          
+          <View style={styles.statusRow}>
+            <View style={[styles.modernBadge, { backgroundColor: getStatusColor(item.status) }]}>
+              <Ionicons name={getStatusIcon(item.status) as any} size={14} color="#fff" />
+              <Text style={styles.modernBadgeText}>{item.status}</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.cardContent}>
+          <View style={styles.infoRow}>
+            <Ionicons name="call-outline" size={16} color="#6B7280" />
+            <Text style={styles.infoText}>{item.contactNumber}</Text>
+          </View>
+          
+          {item.gpsLocation && (
+            <View style={styles.infoRow}>
+              <Ionicons name="location-outline" size={16} color="#6B7280" />
+              <Text style={styles.infoText} numberOfLines={1}>{item.gpsLocation}</Text>
             </View>
           )}
-        </View>
-        <View style={styles.badgesRow}>
-          <View style={[styles.badge, { backgroundColor: getUrgencyColor(item.urgencyLevel) }]}>
-            <Text style={styles.badgeText}>{item.urgencyLevel}</Text>
+
+          {aidTypesList.length > 0 && (
+            <View style={styles.aidTypesContainer}>
+              {aidTypesList.map((type, idx) => (
+                <View key={idx} style={styles.aidTypeChip}>
+                  <Text style={styles.aidTypeText}>{type}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.urgencyRow}>
+            <View style={[styles.urgencyBadge, { backgroundColor: getUrgencyColor(item.urgencyLevel) + '20' }]}>
+              <View style={[styles.urgencyDot, { backgroundColor: getUrgencyColor(item.urgencyLevel) }]} />
+              <Text style={[styles.urgencyText, { color: getUrgencyColor(item.urgencyLevel) }]}>
+                {item.urgencyLevel} Priority
+              </Text>
+            </View>
+            
+            {typeof item.rating === 'number' && (
+              <View style={styles.ratingBadge}>
+                <FontAwesome name="star" size={14} color="#FFC107" />
+                <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
+              </View>
+            )}
           </View>
-          <View style={[styles.badge, styles.statusBadge]}>
-            <Text style={styles.badgeText}>{item.status}</Text>
-          </View>
         </View>
-        <Text style={styles.cardMeta}>NIC: {item.nicNumber} • Contact: {item.contactNumber} • GPS: {item.gpsLocation || 'N/A'}</Text>
-        <Text style={styles.cardMeta}>Needs: {['food','water','medicine','shelter']
-          .filter((k) => (item.aidTypes as any)[k])
-          .join(', ') || 'None'} {item.aidTypes.other ? `, Other: ${item.aidTypes.other}` : ''}</Text>
+
+        {canEditOrCancel && (
+          <View style={styles.cardActions}>
+            <TouchableOpacity 
+              onPress={() => onPressEdit(item)} 
+              style={styles.modernEditButton}
+            >
+              <MaterialIcons name="edit" size={16} color="#3B82F6" />
+              <Text style={styles.modernEditText}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => onPressCancel(item)} 
+              style={styles.modernCancelButton}
+            >
+              <MaterialIcons name="cancel" size={16} color="#EF4444" />
+              <Text style={styles.modernCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {item.status === 'In Progress' && (
+          <View style={styles.cardActions}>
+            <TouchableOpacity 
+              onPress={() => openTrackingModal(item)} 
+              style={styles.trackAidButton}
+            >
+              <Ionicons name="navigate" size={16} color="#fff" />
+              <Text style={styles.trackAidText}>Track My Aid</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => confirmAidReceived(item)} 
+              style={styles.confirmAidButton}
+            >
+              <Ionicons name="checkmark-circle" size={16} color="#fff" />
+              <Text style={styles.confirmAidText}>Confirm Received</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Emergency Aid</Text>
-      <Text style={styles.subtitle}>Request assistance and support resources</Text>
-      
-      {!showForm ? (
-        <TouchableOpacity
-          style={styles.requestButton}
-          onPress={() => setShowForm(true)}
-        >
-          <Text style={styles.requestButtonText}>Request Aid</Text>
-        </TouchableOpacity>
-      ) : (
+      <Animated.View style={[styles.header, { opacity: fadeAnim }]}>
+        <View style={styles.headerTop}>
+          <View>
+            <Text style={styles.headerTitle}>Emergency Aid</Text>
+            <Text style={styles.headerSubtitle}>Request assistance and support</Text>
+          </View>
+          <View style={styles.emergencyIcon}>
+            <Ionicons name="medical" size={32} color="#EF4444" />
+          </View>
+        </View>
+        
+        {!showForm && (
+          <TouchableOpacity
+            style={styles.modernRequestButton}
+            onPress={() => setShowForm(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="add-circle" size={24} color="#fff" />
+            <Text style={styles.modernRequestButtonText}>New Aid Request</Text>
+          </TouchableOpacity>
+        )}
+      </Animated.View>
+
+      {showForm && (
         <Modal
           visible={showForm}
           animationType="slide"
@@ -373,279 +749,489 @@ export default function AidScreen() {
             style={styles.modalContainer}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           >
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{editingRequestId ? 'Edit Aid Request' : 'Aid Request Form'}</Text>
+            <View style={styles.modernModalHeader}>
+              <View>
+                <Text style={styles.modernModalTitle}>
+                  {editingRequestId ? 'Edit Request' : 'New Aid Request'}
+                </Text>
+                <Text style={styles.modernModalSubtitle}>Fill in the details below</Text>
+              </View>
               <TouchableOpacity
                 onPress={() => { setShowForm(false); resetForm(); }}
-                style={styles.closeButton}
+                style={styles.modernCloseButton}
               >
-                <Text style={styles.closeButtonText}>✕</Text>
+                <Ionicons name="close" size={28} color="#6B7280" />
               </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
-              {/* User Identification */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>📋 User Identification</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Full Name *"
-                  value={formData.fullName}
-                  onChangeText={(value) => handleInputChange('fullName', value)}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="NIC Number *"
-                  value={formData.nicNumber}
-                  onChangeText={(value) => handleInputChange('nicNumber', value)}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Contact Number *"
-                  value={formData.contactNumber}
-                  onChangeText={(value) => handleInputChange('contactNumber', value)}
-                  keyboardType="phone-pad"
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Household Size"
-                  value={formData.householdSize}
-                  onChangeText={(value) => handleInputChange('householdSize', value)}
-                  keyboardType="numeric"
-                />
+              <View style={styles.formSection}>
+                <View style={styles.sectionHeader}>
+                  <MaterialIcons name="person-outline" size={20} color="#3B82F6" />
+                  <Text style={styles.modernSectionTitle}>Personal Information</Text>
+                </View>
+                
+                <View style={styles.modernInputContainer}>
+                  <MaterialIcons name="person" size={20} color="#9CA3AF" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.modernInput}
+                    placeholder="Full Name *"
+                    placeholderTextColor="#9CA3AF"
+                    value={formData.fullName}
+                    onChangeText={(value) => handleInputChange('fullName', value)}
+                  />
+                </View>
+
+                <View style={styles.modernInputContainer}>
+                  <MaterialIcons name="credit-card" size={20} color="#9CA3AF" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.modernInput}
+                    placeholder="NIC Number *"
+                    placeholderTextColor="#9CA3AF"
+                    value={formData.nicNumber}
+                    onChangeText={(value) => handleInputChange('nicNumber', value)}
+                  />
+                </View>
+
+                <View style={styles.modernInputContainer}>
+                  <Ionicons name="call" size={20} color="#9CA3AF" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.modernInput}
+                    placeholder="Contact Number *"
+                    placeholderTextColor="#9CA3AF"
+                    value={formData.contactNumber}
+                    onChangeText={(value) => handleInputChange('contactNumber', value)}
+                    keyboardType="phone-pad"
+                  />
+                </View>
+
+                <View style={styles.modernInputContainer}>
+                  <MaterialIcons name="people" size={20} color="#9CA3AF" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.modernInput}
+                    placeholder="Household Size"
+                    placeholderTextColor="#9CA3AF"
+                    value={formData.householdSize}
+                    onChangeText={(value) => handleInputChange('householdSize', value)}
+                    keyboardType="numeric"
+                  />
+                </View>
               </View>
 
-              {/* Location Details */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>📍 Location Details</Text>
-                <View style={styles.gpsContainer}>
-                  <TextInput
-                    style={[styles.input, styles.gpsInput]}
-                    placeholder="GPS Location (auto-captured or manual)"
-                    value={formData.gpsLocation}
-                    onChangeText={(value) => handleInputChange('gpsLocation', value)}
-                  />
+              <View style={styles.formSection}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="location" size={20} color="#3B82F6" />
+                  <Text style={styles.modernSectionTitle}>Location</Text>
+                </View>
+                
+                <View style={styles.gpsRow}>
+                  <View style={[styles.modernInputContainer, { flex: 1 }]}>
+                    <Ionicons name="navigate" size={20} color="#9CA3AF" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.modernInput}
+                      placeholder="GPS Coordinates"
+                      placeholderTextColor="#9CA3AF"
+                      value={formData.gpsLocation}
+                      onChangeText={(value) => handleInputChange('gpsLocation', value)}
+                    />
+                  </View>
                   <TouchableOpacity
-                    style={styles.gpsButton}
+                    style={styles.modernGpsButton}
                     onPress={getCurrentLocation}
                   >
-                    <Text style={styles.gpsButtonText}>📍</Text>
+                    <Ionicons name="locate" size={20} color="#fff" />
                   </TouchableOpacity>
                 </View>
-              {(() => {
-                const gps = formData.gpsLocation;
-                const parts = gps ? gps.split(',').map((p) => p.trim()) : [];
-                const lat = parts.length === 2 ? Number(parts[0]) : NaN;
-                const lng = parts.length === 2 ? Number(parts[1]) : NaN;
-                const hasCoords = !Number.isNaN(lat) && !Number.isNaN(lng);
-                const initialRegion = hasCoords
-                  ? { latitude: lat, longitude: lng, latitudeDelta: 0.01, longitudeDelta: 0.01 }
-                  : undefined;
-                return (
-                  <View style={{ marginTop: 8 }}>
-                    <MapView
-                      ref={mapRef}
-                      style={styles.map}
-                      initialRegion={initialRegion}
-                      onPress={(e) => {
-                        const c = e.nativeEvent.coordinate;
-                        handleInputChange('gpsLocation', `${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)}`);
-                      }}
-                    >
-                      {hasCoords && (
-                        <Marker coordinate={{ latitude: lat, longitude: lng }} />
-                      )}
-                    </MapView>
-                    <Text style={{ color: '#666', marginTop: 6, fontSize: 12 }}>Tap on the map to set location</Text>
-                  </View>
-                );
-              })()}
+
+                {(() => {
+                  const gps = formData.gpsLocation;
+                  const parts = gps ? gps.split(',').map((p) => p.trim()) : [];
+                  const lat = parts.length === 2 ? Number(parts[0]) : NaN;
+                  const lng = parts.length === 2 ? Number(parts[1]) : NaN;
+                  const hasCoords = !Number.isNaN(lat) && !Number.isNaN(lng);
+                  const initialRegion = hasCoords
+                    ? { latitude: lat, longitude: lng, latitudeDelta: 0.01, longitudeDelta: 0.01 }
+                    : undefined;
+                  return (
+                    <View style={styles.mapContainer}>
+                      <MapView
+                        ref={mapRef}
+                        style={styles.modernMap}
+                        initialRegion={initialRegion}
+                        onPress={(e) => {
+                          const c = e.nativeEvent.coordinate;
+                          handleInputChange('gpsLocation', `${c.latitude.toFixed(6)}, ${c.longitude.toFixed(6)}`);
+                        }}
+                      >
+                        {hasCoords && (
+                          <Marker coordinate={{ latitude: lat, longitude: lng }} />
+                        )}
+                      </MapView>
+                      <Text style={styles.mapHint}>Tap on the map to set location</Text>
+                    </View>
+                  );
+                })()}
               </View>
 
-              {/* Aid Request Type */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>🆘 Aid Request Type</Text>
-                <View style={styles.checkboxRow}>
+              <View style={styles.formSection}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="medkit" size={20} color="#3B82F6" />
+                  <Text style={styles.modernSectionTitle}>Aid Type</Text>
+                </View>
+
+                <View style={styles.switchRow}>
+                  <View style={styles.switchLabel}>
+                    <Ionicons name="fast-food-outline" size={20} color="#6B7280" />
+                    <Text style={styles.switchText}>Food</Text>
+                  </View>
                   <Switch
                     value={formData.aidTypes.food}
                     onValueChange={(value) => handleAidTypeChange('food', value)}
+                    trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
+                    thumbColor={formData.aidTypes.food ? '#3B82F6' : '#f4f3f4'}
                   />
-                  <Text style={styles.checkboxLabel}>Food</Text>
                 </View>
-                <View style={styles.checkboxRow}>
+
+                <View style={styles.switchRow}>
+                  <View style={styles.switchLabel}>
+                    <Ionicons name="water-outline" size={20} color="#6B7280" />
+                    <Text style={styles.switchText}>Water</Text>
+                  </View>
                   <Switch
                     value={formData.aidTypes.water}
                     onValueChange={(value) => handleAidTypeChange('water', value)}
+                    trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
+                    thumbColor={formData.aidTypes.water ? '#3B82F6' : '#f4f3f4'}
                   />
-                  <Text style={styles.checkboxLabel}>Water</Text>
                 </View>
-                <View style={styles.checkboxRow}>
+
+                <View style={styles.switchRow}>
+                  <View style={styles.switchLabel}>
+                    <Ionicons name="medical-outline" size={20} color="#6B7280" />
+                    <Text style={styles.switchText}>Medicine</Text>
+                  </View>
                   <Switch
                     value={formData.aidTypes.medicine}
                     onValueChange={(value) => handleAidTypeChange('medicine', value)}
+                    trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
+                    thumbColor={formData.aidTypes.medicine ? '#3B82F6' : '#f4f3f4'}
                   />
-                  <Text style={styles.checkboxLabel}>Medicine</Text>
                 </View>
-                <View style={styles.checkboxRow}>
+
+                <View style={styles.switchRow}>
+                  <View style={styles.switchLabel}>
+                    <Ionicons name="home-outline" size={20} color="#6B7280" />
+                    <Text style={styles.switchText}>Shelter</Text>
+                  </View>
                   <Switch
                     value={formData.aidTypes.shelter}
                     onValueChange={(value) => handleAidTypeChange('shelter', value)}
+                    trackColor={{ false: '#D1D5DB', true: '#93C5FD' }}
+                    thumbColor={formData.aidTypes.shelter ? '#3B82F6' : '#f4f3f4'}
                   />
-                  <Text style={styles.checkboxLabel}>Shelter / Temporary housing</Text>
                 </View>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Other (specify)"
-                  value={formData.aidTypes.other}
-                  onChangeText={(value) => handleAidTypeChange('other', value)}
-                />
+
+                <View style={styles.modernInputContainer}>
+                  <MaterialIcons name="more-horiz" size={20} color="#9CA3AF" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.modernInput}
+                    placeholder="Other (specify)"
+                    placeholderTextColor="#9CA3AF"
+                    value={formData.aidTypes.other}
+                    onChangeText={(value) => handleAidTypeChange('other', value)}
+                  />
+                </View>
               </View>
 
-              {/* Urgency Level */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>🚨 Urgency Level</Text>
-                <View style={styles.pickerContainer}>
+              <View style={styles.formSection}>
+                <View style={styles.sectionHeader}>
+                  <Ionicons name="alert-circle" size={20} color="#3B82F6" />
+                  <Text style={styles.modernSectionTitle}>Urgency Level</Text>
+                </View>
+                
+                <View style={styles.urgencyPicker}>
                   <Picker
                     selectedValue={formData.urgencyLevel}
                     onValueChange={(value) => handleInputChange('urgencyLevel', value)}
                     style={styles.picker}
                   >
-                    <Picker.Item label="Low" value="Low" />
-                    <Picker.Item label="Medium" value="Medium" />
-                    <Picker.Item label="High" value="High" />
+                    <Picker.Item label="Low Priority" value="Low" />
+                    <Picker.Item label="Medium Priority" value="Medium" />
+                    <Picker.Item label="High Priority" value="High" />
                   </Picker>
-                  <View style={[styles.urgencyIndicator, { backgroundColor: getUrgencyColor(formData.urgencyLevel) }]} />
+                  <View style={[styles.urgencyIndicatorLarge, { backgroundColor: getUrgencyColor(formData.urgencyLevel) }]} />
                 </View>
               </View>
 
-              {/* Additional Notes */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>📝 Additional Notes (Optional)</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  placeholder="Specific needs, medical conditions, etc."
-                  value={formData.additionalNotes}
-                  onChangeText={(value) => handleInputChange('additionalNotes', value)}
-                  multiline
-                  numberOfLines={4}
-                  textAlignVertical="top"
-                />
+              <View style={styles.formSection}>
+                <View style={styles.sectionHeader}>
+                  <MaterialIcons name="note" size={20} color="#3B82F6" />
+                  <Text style={styles.modernSectionTitle}>Additional Notes</Text>
+                </View>
+                
+                <View style={[styles.modernInputContainer, styles.textAreaContainer]}>
+                  <TextInput
+                    style={[styles.modernInput, styles.textArea]}
+                    placeholder="Specific needs, medical conditions, etc."
+                    placeholderTextColor="#9CA3AF"
+                    value={formData.additionalNotes}
+                    onChangeText={(value) => handleInputChange('additionalNotes', value)}
+                    multiline
+                    numberOfLines={4}
+                    textAlignVertical="top"
+                  />
+                </View>
               </View>
 
-              {/* Submit Button */}
               <TouchableOpacity
-                style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+                style={[styles.modernSubmitButton, isSubmitting && styles.modernSubmitButtonDisabled]}
                 onPress={handleSubmit}
                 disabled={isSubmitting}
+                activeOpacity={0.8}
               >
-                <Text style={styles.submitButtonText}>
-                  {isSubmitting ? (editingRequestId ? 'Updating...' : 'Submitting...') : (editingRequestId ? 'Update Request' : 'Submit Request')}
-                </Text>
+                {isSubmitting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={24} color="#fff" />
+                    <Text style={styles.modernSubmitButtonText}>
+                      {editingRequestId ? 'Update Request' : 'Submit Request'}
+                    </Text>
+                  </>
+                )}
               </TouchableOpacity>
             </ScrollView>
           </KeyboardAvoidingView>
         </Modal>
       )}
 
-      {/* Detail Modal */}
       <Modal
         visible={isDetailOpen}
         animationType="slide"
         onRequestClose={() => setIsDetailOpen(false)}
       >
         <KeyboardAvoidingView style={styles.modalContainer} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Request Details</Text>
-            <TouchableOpacity onPress={() => setIsDetailOpen(false)} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>✕</Text>
+          <View style={styles.modernModalHeader}>
+            <View>
+              <Text style={styles.modernModalTitle}>Request Details</Text>
+              <Text style={styles.modernModalSubtitle}>View your aid request</Text>
+            </View>
+            <TouchableOpacity onPress={() => setIsDetailOpen(false)} style={styles.modernCloseButton}>
+              <Ionicons name="close" size={28} color="#6B7280" />
             </TouchableOpacity>
           </View>
+          
           <ScrollView style={styles.formContainer} showsVerticalScrollIndicator={false}>
             {selectedRequest && (
               <View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Full Name</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.fullName}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>NIC Number</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.nicNumber}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Contact Number</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.contactNumber}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>GPS</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.gpsLocation || 'N/A'}</Text>
-                </View>
-                {(() => {
-                  const gps = selectedRequest.gpsLocation;
-                  const parts = gps ? gps.split(',').map((p) => p.trim()) : [];
-                  const lat = parts.length === 2 ? Number(parts[0]) : NaN;
-                  const lng = parts.length === 2 ? Number(parts[1]) : NaN;
-                  const valid = !Number.isNaN(lat) && !Number.isNaN(lng);
-                  if (!valid) return null;
-                  return (
-                    <View style={{ marginBottom: 16 }}>
-                      <MapView
-                        style={styles.map}
-                        initialRegion={{
-                          latitude: lat,
-                          longitude: lng,
-                          latitudeDelta: 0.01,
-                          longitudeDelta: 0.01,
-                        }}
-                        pointerEvents="none"
-                      >
-                        <Marker coordinate={{ latitude: lat, longitude: lng }} />
-                      </MapView>
+                <View style={styles.detailCard}>
+                  <View style={styles.detailHeader}>
+                    <View style={styles.avatarCircleLarge}>
+                      <MaterialIcons name="person" size={32} color="#fff" />
                     </View>
-                  );
-                })()}
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Household Size</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.householdSize || 'N/A'}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Urgency</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={[styles.detailUrgencyDot, { backgroundColor: getUrgencyColor(selectedRequest.urgencyLevel) }]} />
-                    <Text style={[styles.detailValue, { marginLeft: 8 }]}>{selectedRequest.urgencyLevel}</Text>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={styles.detailName}>{selectedRequest.fullName}</Text>
+                      <Text style={styles.detailSubtext}>NIC: {selectedRequest.nicNumber}</Text>
+                    </View>
                   </View>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Status</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.status}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Needs</Text>
-                  <Text style={styles.detailValue}>
-                    {['food','water','medicine','shelter'].filter(k => (selectedRequest.aidTypes as any)[k]).join(', ') || 'None'}
-                    {selectedRequest.aidTypes.other ? `, Other: ${selectedRequest.aidTypes.other}` : ''}
-                  </Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Additional Notes</Text>
-                  <Text style={styles.detailValue}>{selectedRequest.additionalNotes || '—'}</Text>
-                </View>
-                {(selectedRequest.createdAt || selectedRequest.updatedAt) && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Timestamps</Text>
-                    <Text style={styles.detailValue}>
-                      {selectedRequest.createdAt ? `Created: ${new Date((selectedRequest.createdAt.seconds ?? 0) * 1000).toLocaleString()}` : ''}
-                      {selectedRequest.updatedAt ? `\nUpdated: ${new Date((selectedRequest.updatedAt.seconds ?? 0) * 1000).toLocaleString()}` : ''}
+
+                  <View style={[styles.statusBanner, { backgroundColor: getStatusColor(selectedRequest.status) + '20' }]}>
+                    <Ionicons name={getStatusIcon(selectedRequest.status) as any} size={24} color={getStatusColor(selectedRequest.status)} />
+                    <Text style={[styles.statusBannerText, { color: getStatusColor(selectedRequest.status) }]}>
+                      {selectedRequest.status}
                     </Text>
                   </View>
+                </View>
+
+                <View style={styles.detailSection}>
+                  <View style={styles.detailRow}>
+                    <Ionicons name="call" size={20} color="#6B7280" />
+                    <View style={{ marginLeft: 12, flex: 1 }}>
+                      <Text style={styles.detailLabel}>Contact Number</Text>
+                      <Text style={styles.detailValue}>{selectedRequest.contactNumber}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailRow}>
+                    <MaterialIcons name="people" size={20} color="#6B7280" />
+                    <View style={{ marginLeft: 12, flex: 1 }}>
+                      <Text style={styles.detailLabel}>Household Size</Text>
+                      <Text style={styles.detailValue}>{selectedRequest.householdSize || 'N/A'}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailRow}>
+                    <Ionicons name="alert-circle" size={20} color="#6B7280" />
+                    <View style={{ marginLeft: 12, flex: 1 }}>
+                      <Text style={styles.detailLabel}>Urgency Level</Text>
+                      <View style={styles.urgencyDetailRow}>
+                        <View style={[styles.urgencyDot, { backgroundColor: getUrgencyColor(selectedRequest.urgencyLevel) }]} />
+                        <Text style={[styles.detailValue, { color: getUrgencyColor(selectedRequest.urgencyLevel), fontWeight: '600' }]}>
+                          {selectedRequest.urgencyLevel} Priority
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.detailRow}>
+                    <Ionicons name="location" size={20} color="#6B7280" />
+                    <View style={{ marginLeft: 12, flex: 1 }}>
+                      <Text style={styles.detailLabel}>GPS Location</Text>
+                      <Text style={styles.detailValue}>{selectedRequest.gpsLocation || 'N/A'}</Text>
+                    </View>
+                  </View>
+
+                  {(() => {
+                    const gps = selectedRequest.gpsLocation;
+                    const parts = gps ? gps.split(',').map((p) => p.trim()) : [];
+                    const lat = parts.length === 2 ? Number(parts[0]) : NaN;
+                    const lng = parts.length === 2 ? Number(parts[1]) : NaN;
+                    const valid = !Number.isNaN(lat) && !Number.isNaN(lng);
+                    if (!valid) return null;
+                    return (
+                      <View style={styles.mapContainer}>
+                        <MapView
+                          style={styles.modernMap}
+                          initialRegion={{
+                            latitude: lat,
+                            longitude: lng,
+                            latitudeDelta: 0.01,
+                            longitudeDelta: 0.01,
+                          }}
+                          pointerEvents="none"
+                        >
+                          <Marker coordinate={{ latitude: lat, longitude: lng }} />
+                        </MapView>
+                      </View>
+                    );
+                  })()}
+
+                  <View style={styles.detailRow}>
+                    <Ionicons name="medkit" size={20} color="#6B7280" />
+                    <View style={{ marginLeft: 12, flex: 1 }}>
+                      <Text style={styles.detailLabel}>Aid Types Needed</Text>
+                      <View style={styles.aidTypesDetailContainer}>
+                        {['food','water','medicine','shelter'].filter(k => (selectedRequest.aidTypes as any)[k]).map((type, idx) => (
+                          <View key={idx} style={styles.aidTypeChipDetail}>
+                            <Text style={styles.aidTypeTextDetail}>{type.charAt(0).toUpperCase() + type.slice(1)}</Text>
+                          </View>
+                        ))}
+                        {selectedRequest.aidTypes.other && (
+                          <View style={styles.aidTypeChipDetail}>
+                            <Text style={styles.aidTypeTextDetail}>Other: {selectedRequest.aidTypes.other}</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+
+                  {selectedRequest.additionalNotes && (
+                    <View style={styles.detailRow}>
+                      <MaterialIcons name="note" size={20} color="#6B7280" />
+                      <View style={{ marginLeft: 12, flex: 1 }}>
+                        <Text style={styles.detailLabel}>Additional Notes</Text>
+                        <Text style={styles.detailValue}>{selectedRequest.additionalNotes}</Text>
+                      </View>
+                    </View>
+                  )}
+                </View>
+
+                {selectedRequest.status === 'Delivered' && (
+                  <View style={styles.ratingSection}>
+                    <Text style={styles.ratingSectionTitle}>Rate Your Experience</Text>
+                    <View style={styles.starsContainer}>
+                      {[1,2,3,4,5].map((star) => {
+                        const interactive = !(selectedRequest.rating && selectedRequest.rating > 0);
+                        const isFilled = (selectedRequest.rating && selectedRequest.rating > 0)
+                          ? (selectedRequest.rating >= star)
+                          : (pendingRating >= star);
+                        const StarComp = (
+                          <FontAwesome
+                            name={isFilled ? 'star' : 'star-o'}
+                            size={32}
+                            color={isFilled ? '#FFC107' : '#D1D5DB'}
+                          />
+                        );
+                        return interactive ? (
+                          <TouchableOpacity
+                            key={star}
+                            onPress={() => setPendingRating(star)}
+                            style={styles.starButton}
+                            activeOpacity={0.7}
+                          >
+                            {StarComp}
+                          </TouchableOpacity>
+                        ) : (
+                          <View key={star} style={styles.starButton}>
+                            {StarComp}
+                          </View>
+                        );
+                      })}
+                    </View>
+                    {!(selectedRequest.rating && selectedRequest.rating > 0) && pendingRating > 0 && (
+                      <TouchableOpacity
+                        onPress={() => saveRating(selectedRequest.id, pendingRating)}
+                        style={styles.modernSubmitButton}
+                        disabled={pendingRating === 0}
+                      >
+                        <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                        <Text style={styles.modernSubmitButtonText}>Submit Rating</Text>
+                      </TouchableOpacity>
+                    )}
+                    {selectedRequest.rating && (
+                      <Text style={styles.ratingConfirmation}>
+                        You rated this request {selectedRequest.rating} / 5 stars
+                      </Text>
+                    )}
+                  </View>
                 )}
+
+                {(selectedRequest.createdAt || selectedRequest.updatedAt) && (
+                  <View style={styles.timestampSection}>
+                    <Ionicons name="time-outline" size={16} color="#9CA3AF" />
+                    <View style={{ marginLeft: 8 }}>
+                      {selectedRequest.createdAt && (
+                        <Text style={styles.timestampText}>
+                          Created: {new Date((selectedRequest.createdAt.seconds ?? 0) * 1000).toLocaleString()}
+                        </Text>
+                      )}
+                      {selectedRequest.updatedAt && (
+                        <Text style={styles.timestampText}>
+                          Updated: {new Date((selectedRequest.updatedAt.seconds ?? 0) * 1000).toLocaleString()}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                )}
+
                 {selectedRequest.status === 'Requested' && (
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 }}>
-                    <TouchableOpacity style={[styles.editButton, { flex: 1 }]} onPress={() => { if (selectedRequest) { setIsDetailOpen(false); onPressEdit(selectedRequest); } }}>
-                      <Text style={styles.actionText}>Edit</Text>
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity 
+                      style={styles.actionButtonEdit} 
+                      onPress={() => { 
+                        if (selectedRequest) { 
+                          setIsDetailOpen(false); 
+                          onPressEdit(selectedRequest); 
+                        } 
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <MaterialIcons name="edit" size={20} color="#fff" />
+                      <Text style={styles.actionButtonText}>Edit Request</Text>
                     </TouchableOpacity>
-                    <View style={{ width: 12 }} />
-                    <TouchableOpacity style={[styles.cancelButton, { flex: 1 }]} onPress={() => { if (selectedRequest) { setIsDetailOpen(false); onPressCancel(selectedRequest); } }}>
-                      <Text style={styles.actionText}>Cancel</Text>
+                    
+                    <TouchableOpacity 
+                      style={styles.actionButtonCancel} 
+                      onPress={() => { 
+                        if (selectedRequest) { 
+                          setIsDetailOpen(false); 
+                          onPressCancel(selectedRequest); 
+                        } 
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <MaterialIcons name="cancel" size={20} color="#fff" />
+                      <Text style={styles.actionButtonText}>Cancel Request</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -654,25 +1240,272 @@ export default function AidScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
-      {/* Requests List */}
-      <View style={styles.listHeaderRow}>
-        <Text style={styles.sectionTitle}>Your Requests</Text>
-        {currentUser ? (
-          <Text style={styles.smallNote}>for {currentUser.email || currentUser.uid}</Text>
-        ) : null}
+
+      {/* Tracking Modal */}
+      <Modal
+        visible={showTrackingModal}
+        animationType="slide"
+        onRequestClose={closeTrackingModal}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modernModalHeader}>
+            <View>
+              <Text style={styles.modernModalTitle}>Track My Aid</Text>
+              <Text style={styles.modernModalSubtitle}>Monitor your aid delivery</Text>
+            </View>
+            <TouchableOpacity onPress={closeTrackingModal} style={styles.modernCloseButton}>
+              <Ionicons name="close" size={28} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.trackingContainer}>
+            {trackingRequest && (
+              <View style={styles.trackingInfo}>
+                <View style={styles.trackingHeader}>
+                  <View style={styles.avatarCircleLarge}>
+                    <MaterialIcons name="person" size={32} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.detailName}>{trackingRequest.fullName}</Text>
+                    <Text style={styles.detailSubtext}>Request ID: {trackingRequest.id}</Text>
+                  </View>
+                  <View style={[styles.statusBanner, { backgroundColor: getStatusColor(trackingRequest.status) + '20' }]}>
+                    <Ionicons name={getStatusIcon(trackingRequest.status) as any} size={20} color={getStatusColor(trackingRequest.status)} />
+                    <Text style={[styles.statusBannerText, { color: getStatusColor(trackingRequest.status) }]}>
+                      {trackingRequest.status}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.trackingMapContainer}>
+              <View style={styles.trackingMapHeader}>
+                <Text style={styles.trackingMapTitle}>Delivery Route</Text>
+                {isUsingFallbackRoute && (
+                  <View style={styles.fallbackIndicator}>
+                    <Ionicons name="warning" size={16} color="#F59E0B" />
+                    <Text style={styles.fallbackText}>Approximate Route</Text>
+                  </View>
+                )}
+              </View>
+              {userLocation && ngoLocation && (
+                <MapView
+                  ref={trackingMapRef}
+                  style={styles.trackingMap}
+                  initialRegion={{
+                    latitude: (userLocation.latitude + ngoLocation.latitude) / 2,
+                    longitude: (userLocation.longitude + ngoLocation.longitude) / 2,
+                    latitudeDelta: Math.abs(userLocation.latitude - ngoLocation.latitude) * 1.5,
+                    longitudeDelta: Math.abs(userLocation.longitude - ngoLocation.longitude) * 1.5,
+                  }}
+                >
+                  {/* User Location Marker */}
+                  <Marker
+                    coordinate={userLocation}
+                    title="Your Location"
+                    description="Aid delivery destination"
+                  >
+                    <View style={styles.userMarker}>
+                      <Ionicons name="person" size={20} color="#fff" />
+                    </View>
+                  </Marker>
+                  
+                  {/* NGO Location Marker */}
+                  <Marker
+                    coordinate={ngoLocation}
+                    title={NGO_LOCATION.name}
+                    description="Emergency Response Center"
+                  >
+                    <View style={styles.ngoMarker}>
+                      <Ionicons name="business" size={20} color="#fff" />
+                    </View>
+                  </Marker>
+                  
+                  {/* Route Polyline */}
+                  {routeCoordinates.length > 0 && (
+                    <Polyline
+                      coordinates={routeCoordinates}
+                      strokeColor="#8B5CF6"
+                      strokeWidth={5}
+                    />
+                  )}
+                </MapView>
+              )}
+              
+              {(!userLocation || !ngoLocation) && (
+                <View style={styles.trackingMapPlaceholder}>
+                  <ActivityIndicator size="large" color="#3B82F6" />
+                  <Text style={styles.trackingMapPlaceholderText}>Loading locations...</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.trackingDetails}>
+              <View style={styles.trackingDetailRow}>
+                <View style={styles.trackingDetailIcon}>
+                  <Ionicons name="location" size={20} color="#3B82F6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trackingDetailLabel}>Your Location</Text>
+                  <Text style={styles.trackingDetailValue}>
+                    {userLocation ? `${userLocation.latitude.toFixed(4)}, ${userLocation.longitude.toFixed(4)}` : 'Loading...'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.trackingDetailRow}>
+                <View style={styles.trackingDetailIcon}>
+                  <Ionicons name="business" size={20} color="#8B5CF6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trackingDetailLabel}>Response Center</Text>
+                  <Text style={styles.trackingDetailValue}>{NGO_LOCATION.name}</Text>
+                </View>
+              </View>
+
+              <View style={styles.trackingDetailRow}>
+                <View style={styles.trackingDetailIcon}>
+                  <Ionicons name="time" size={20} color="#10B981" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trackingDetailLabel}>Estimated Duration</Text>
+                  <Text style={styles.trackingDetailValue}>
+                    {isCalculatingRoute ? 'Calculating...' : (routeInfo?.duration || 'Unknown')}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.trackingDetailRow}>
+                <View style={styles.trackingDetailIcon}>
+                  <Ionicons name="navigate" size={20} color="#8B5CF6" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.trackingDetailLabel}>Route Distance</Text>
+                  <Text style={styles.trackingDetailValue}>
+                    {isCalculatingRoute ? 'Calculating...' : (routeInfo?.distance || 'Unknown')}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Feedback Modal */}
+      <Modal
+        visible={showFeedbackModal}
+        animationType="slide"
+        onRequestClose={closeFeedbackModal}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modernModalHeader}>
+            <View>
+              <Text style={styles.modernModalTitle}>Rate Your Experience</Text>
+              <Text style={styles.modernModalSubtitle}>How was your aid delivery experience?</Text>
+            </View>
+            <TouchableOpacity onPress={closeFeedbackModal} style={styles.modernCloseButton}>
+              <Ionicons name="close" size={28} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.feedbackContainer}>
+            {feedbackRequest && (
+              <View style={styles.feedbackInfo}>
+                <View style={styles.avatarCircleLarge}>
+                  <MaterialIcons name="person" size={32} color="#fff" />
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.detailName}>{feedbackRequest.fullName}</Text>
+                  <Text style={styles.detailSubtext}>Request ID: {feedbackRequest.id}</Text>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.feedbackSection}>
+              <Text style={styles.feedbackTitle}>Please rate your experience</Text>
+              <Text style={styles.feedbackSubtitle}>Your feedback helps us improve our service</Text>
+              
+              <View style={styles.feedbackStarsContainer}>
+                {[1,2,3,4,5].map((star) => (
+                  <TouchableOpacity
+                    key={star}
+                    onPress={() => setFeedbackRating(star)}
+                    style={styles.feedbackStarButton}
+                    activeOpacity={0.7}
+                  >
+                    <FontAwesome
+                      name={feedbackRating >= star ? 'star' : 'star-o'}
+                      size={40}
+                      color={feedbackRating >= star ? '#FFC107' : '#D1D5DB'}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {feedbackRating > 0 && (
+                <View style={styles.feedbackRatingText}>
+                  <Text style={styles.feedbackRatingLabel}>
+                    {feedbackRating === 1 ? 'Poor' : 
+                     feedbackRating === 2 ? 'Fair' : 
+                     feedbackRating === 3 ? 'Good' : 
+                     feedbackRating === 4 ? 'Very Good' : 'Excellent'}
+                  </Text>
+                </View>
+              )}
+
+              <TouchableOpacity
+                onPress={submitFeedback}
+                style={[styles.feedbackSubmitButton, feedbackRating === 0 && styles.feedbackSubmitButtonDisabled]}
+                disabled={feedbackRating === 0}
+              >
+                <Ionicons name="checkmark-circle" size={24} color="#fff" />
+                <Text style={styles.feedbackSubmitButtonText}>Submit Feedback</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <View style={styles.listSection}>
+        <View style={styles.listHeader}>
+          <View>
+            <Text style={styles.listTitle}>Your Requests</Text>
+            {currentUser && (
+              <Text style={styles.listSubtitle}>{currentUser.email || currentUser.uid}</Text>
+            )}
+          </View>
+          {requests.length > 0 && (
+            <View style={styles.countBadge}>
+              <Text style={styles.countBadgeText}>{requests.length}</Text>
+            </View>
+          )}
+        </View>
+
+        {isLoadingRequests ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#3B82F6" />
+            <Text style={styles.loadingText}>Loading requests...</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={requests}
+            keyExtractor={(item) => item.id}
+            renderItem={renderRequestItem}
+            style={styles.list}
+            contentContainerStyle={requests.length === 0 ? styles.emptyListContainer : styles.listContent}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Ionicons name="document-text-outline" size={64} color="#D1D5DB" />
+                <Text style={styles.emptyStateTitle}>No Requests Yet</Text>
+                <Text style={styles.emptyStateText}>
+                  Tap "New Aid Request" to submit your first request
+                </Text>
+              </View>
+            }
+          />
+        )}
       </View>
-      {isLoadingRequests ? (
-        <ActivityIndicator size="small" color="#2196F3" />
-      ) : (
-        <FlatList
-          data={requests}
-          keyExtractor={(item) => item.id}
-          renderItem={renderRequestItem}
-          style={styles.list}
-          ListEmptyComponent={<Text style={styles.emptyText}>No requests yet.</Text>}
-          contentContainerStyle={requests.length === 0 ? { flexGrow: 1, justifyContent: 'center', alignItems: 'center' } : undefined}
-        />
-      )}
     </View>
   );
 }
@@ -680,263 +1513,916 @@ export default function AidScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'flex-start',
+    backgroundColor: '#F9FAFB',
+  },
+  header: {
+    backgroundColor: '#fff',
     paddingHorizontal: 20,
-    backgroundColor: '#f5f5f5',
+    paddingTop: 16,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 3,
   },
-  list: {
-    width: '100%',
-    marginHorizontal: -20,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: '#333',
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
   },
-  requestButton: {
-    backgroundColor: '#2196F3',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    marginBottom: 8,
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#111827',
+    letterSpacing: -0.5,
   },
-  requestButtonText: {
+  headerSubtitle: {
+    fontSize: 15,
+    color: '#6B7280',
+    marginTop: 4,
+  },
+  emergencyIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modernRequestButton: {
+    backgroundColor: '#3B82F6',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  modernRequestButtonText: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    marginLeft: 8,
   },
   modalContainer: {
     flex: 1,
     backgroundColor: '#fff',
   },
-  modalHeader: {
+  modernModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    backgroundColor: '#f8f9fa',
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#fff',
   },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
+  modernModalTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111827',
   },
-  detailRow: {
-    marginBottom: 12,
+  modernModalSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
   },
-  detailLabel: {
-    fontSize: 13,
-    color: '#777',
-    marginBottom: 4,
-  },
-  detailValue: {
-    fontSize: 16,
-    color: '#333',
-  },
-  detailUrgencyDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  map: {
-    width: '100%',
-    height: 180,
-    borderRadius: 12,
-  },
-  closeButton: {
-    padding: 5,
-  },
-  closeButtonText: {
-    fontSize: 20,
-    color: '#666',
+  modernCloseButton: {
+    padding: 4,
   },
   formContainer: {
     flex: 1,
-    padding: 20,
+    backgroundColor: '#F9FAFB',
   },
-  section: {
+  formSection: {
+    backgroundColor: '#fff',
+    marginTop: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 16,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 12,
-    color: '#333',
+  modernSectionTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#111827',
+    marginLeft: 8,
   },
-  input: {
+  modernInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 10,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 12,
     marginBottom: 12,
+  },
+  inputIcon: {
+    marginRight: 8,
+  },
+  modernInput: {
+    flex: 1,
+    paddingVertical: 14,
     fontSize: 16,
-    backgroundColor: '#fff',
+    color: '#111827',
+  },
+  textAreaContainer: {
+    alignItems: 'flex-start',
   },
   textArea: {
     height: 100,
     textAlignVertical: 'top',
+    paddingTop: 14,
   },
-  gpsContainer: {
+  gpsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
   },
-  gpsInput: {
-    flex: 1,
-    marginBottom: 0,
-    marginRight: 10,
-  },
-  gpsButton: {
-    backgroundColor: '#4CAF50',
-    padding: 10,
-    borderRadius: 8,
+  modernGpsButton: {
+    backgroundColor: '#10B981',
+    width: 50,
+    height: 50,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 8,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  gpsButtonText: {
-    fontSize: 18,
-    color: '#fff',
+  mapContainer: {
+    marginTop: 8,
   },
-  checkboxRow: {
+  modernMap: {
+    width: '100%',
+    height: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  mapHint: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
-  checkboxLabel: {
-    marginLeft: 10,
+  switchLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  switchText: {
     fontSize: 16,
-    color: '#333',
+    color: '#111827',
+    marginLeft: 12,
+    fontWeight: '500',
   },
-  pickerContainer: {
+  urgencyPicker: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingRight: 12,
   },
   picker: {
     flex: 1,
-    height: 44,
+    height: 50,
   },
-  urgencyIndicator: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    marginRight: 12,
+  urgencyIndicatorLarge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
   },
-  submitButton: {
-    backgroundColor: '#4CAF50',
-    paddingVertical: 12,
-    borderRadius: 8,
+  modernSubmitButton: {
+    backgroundColor: '#10B981',
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 24,
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 32,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  submitButtonDisabled: {
-    backgroundColor: '#ccc',
+  modernSubmitButtonDisabled: {
+    backgroundColor: '#D1D5DB',
+    shadowOpacity: 0,
   },
-  submitButtonText: {
+  modernSubmitButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 17,
+    fontWeight: '700',
+    marginLeft: 8,
   },
-  listHeaderRow: {
-    width: '100%',
+  listSection: {
+    flex: 1,
+    paddingTop: 16,
+  },
+  listHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 8,
-    marginBottom: 8,
+    paddingHorizontal: 20,
+    marginBottom: 12,
   },
-  smallNote: {
-    color: '#666',
-    fontSize: 12,
+  listTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
   },
-  emptyText: {
-    color: '#666',
+  listSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  countBadge: {
+    backgroundColor: '#3B82F6',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  countBadgeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  list: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  emptyListContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 15,
+    color: '#6B7280',
+    marginTop: 12,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 48,
+  },
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#374151',
     marginTop: 16,
   },
-  card: {
-    width: '100%',
-    backgroundColor: '#fff',
-    borderRadius: 0,
-    padding: 16,
-    marginBottom: 10,
-    borderColor: '#eee',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
+  emptyStateText: {
+    fontSize: 15,
+    color: '#6B7280',
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 32,
   },
-  cardHeader: {
+  modernCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    overflow: 'hidden',
+  },
+  cardTopSection: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  cardHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: 12,
+  },
+  avatarCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#3B82F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarCircleLarge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#3B82F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cardTitleSection: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  modernCardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  cardSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  modernBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  modernBadgeText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  cardContent: {
+    padding: 16,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  infoText: {
+    fontSize: 14,
+    color: '#374151',
+    marginLeft: 8,
+    flex: 1,
+  },
+  aidTypesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  aidTypeChip: {
+    backgroundColor: '#DBEAFE',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    marginRight: 6,
     marginBottom: 6,
   },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
+  aidTypeText: {
+    fontSize: 12,
+    color: '#1E40AF',
+    fontWeight: '600',
+  },
+  urgencyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  urgencyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  urgencyDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  urgencyText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  ratingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  ratingText: {
+    fontSize: 13,
+    color: '#92400E',
+    fontWeight: '700',
+    marginLeft: 4,
   },
   cardActions: {
     flexDirection: 'row',
-    alignItems: 'center',
+    padding: 12,
+    backgroundColor: '#F9FAFB',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
   },
-  editButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#1976D2',
+  modernEditButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginRight: 6,
+  },
+  modernEditText: {
+    color: '#3B82F6',
+    fontSize: 14,
+    fontWeight: '600',
     marginLeft: 6,
   },
-  cancelButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#C62828',
+  modernCancelButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEE2E2',
+    paddingVertical: 10,
+    borderRadius: 10,
+    marginLeft: 6,
+  },
+  modernCancelText: {
+    color: '#EF4444',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  detailCard: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  detailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#F9FAFB',
+  },
+  detailName: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  detailSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  statusBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+  },
+  statusBannerText: {
+    fontSize: 16,
+    fontWeight: '700',
     marginLeft: 8,
   },
-  actionText: {
+  detailSection: {
+    padding: 20,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    marginBottom: 20,
+  },
+  detailLabel: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  detailValue: {
+    fontSize: 16,
+    color: '#111827',
+    fontWeight: '500',
+  },
+  urgencyDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  aidTypesDetailContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 6,
+  },
+  aidTypeChipDetail: {
+    backgroundColor: '#DBEAFE',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginRight: 8,
+    marginBottom: 6,
+  },
+  aidTypeTextDetail: {
+    fontSize: 13,
+    color: '#1E40AF',
+    fontWeight: '600',
+  },
+  ratingSection: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 20,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  ratingSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 16,
+  },
+  starsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  starButton: {
+    marginHorizontal: 4,
+  },
+  ratingConfirmation: {
+    fontSize: 14,
+    color: '#10B981',
+    fontWeight: '600',
+    marginTop: 12,
+  },
+  timestampSection: {
+    flexDirection: 'row',
+    backgroundColor: '#F9FAFB',
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+  },
+  timestampText: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 24,
+  },
+  actionButtonEdit: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3B82F6',
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginRight: 8,
+  },
+  actionButtonCancel: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EF4444',
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  // Track Aid Button Styles
+  trackAidButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8B5CF6',
+    paddingVertical: 12,
+    borderRadius: 10,
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  trackAidText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+    marginLeft: 6,
   },
-  cardSub: {
-    color: '#555',
-    marginBottom: 6,
+  // Tracking Modal Styles
+  trackingContainer: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
   },
-  cardMeta: {
-    color: '#666',
-    fontSize: 12,
-    marginTop: 2,
+  trackingInfo: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
   },
-  badgesRow: {
+  trackingHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    padding: 20,
+    backgroundColor: '#F9FAFB',
   },
-  badge: {
+  trackingMapContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  trackingMapHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  trackingMapTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  fallbackIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
-    marginRight: 6,
   },
-  badgeText: {
-    color: '#fff',
+  fallbackText: {
     fontSize: 12,
-    fontWeight: 'bold',
+    color: '#92400E',
+    fontWeight: '600',
+    marginLeft: 4,
   },
-  statusBadge: {
-    backgroundColor: '#FF9800', // Default to Medium color
+  trackingMap: {
+    width: '100%',
+    height: 300,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  trackingMapPlaceholder: {
+    height: 300,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+  },
+  trackingMapPlaceholderText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+  },
+  userMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#3B82F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  ngoMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#8B5CF6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  trackingDetails: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 24,
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  trackingDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  trackingDetailIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  trackingDetailLabel: {
+    fontSize: 13,
+    color: '#9CA3AF',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  trackingDetailValue: {
+    fontSize: 16,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  // Confirm Aid Button Styles
+  confirmAidButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    borderRadius: 10,
+    marginLeft: 8,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  confirmAidText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 6,
+  },
+  // Feedback Modal Styles
+  feedbackContainer: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  feedbackInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  feedbackSection: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  feedbackTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  feedbackSubtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 32,
+    textAlign: 'center',
+  },
+  feedbackStarsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  feedbackStarButton: {
+    marginHorizontal: 8,
+    padding: 8,
+  },
+  feedbackRatingText: {
+    marginBottom: 24,
+  },
+  feedbackRatingLabel: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  feedbackSubmitButton: {
+    backgroundColor: '#10B981',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  feedbackSubmitButtonDisabled: {
+    backgroundColor: '#D1D5DB',
+    shadowOpacity: 0,
+  },
+  feedbackSubmitButtonText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '700',
+    marginLeft: 8,
   },
 });
+
+ 
