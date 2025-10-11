@@ -138,19 +138,33 @@ export default function DamageReportForm() {
         accuracy: Location.Accuracy.High,
       });
       setLocation(loc.coords);
-      
-      const reverseGeocode = await Location.reverseGeocodeAsync({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-      });
-      
-      if (reverseGeocode.length > 0) {
-        const addr = reverseGeocode[0];
-        const fullAddress = `${addr.street || ''} ${addr.city || ''} ${addr.region || ''} ${addr.country || ''}`.trim();
-        setAddress(fullAddress);
+
+      // Only attempt reverse geocoding when online. reverseGeocodeAsync
+      // may attempt network calls and throw when offline (IOException).
+      let fullAddress = '';
+      try {
+        if (!isOffline) {
+          const reverseGeocode = await Location.reverseGeocodeAsync({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+
+          if (reverseGeocode.length > 0) {
+            const addr = reverseGeocode[0];
+            fullAddress = `${addr.street || ''} ${addr.city || ''} ${addr.region || ''} ${addr.country || ''}`.trim();
+            setAddress(fullAddress);
+          }
+        } else {
+          // Offline - skip reverse geocoding
+          console.log('Offline - skipping reverse geocode');
+        }
+      } catch (err: any) {
+        // Don't surface a hard error to the user for reverse geocode failures when offline.
+        console.warn('Reverse geocode failed:', err?.message || err);
       }
-      
-      Alert.alert('Location Captured', `Address: ${address || 'Unknown'}`);
+
+      // Use the computed address (if any) or existing address state
+      Alert.alert('Location Captured', `Address: ${fullAddress || address || 'Unknown'}`);
     } catch (error) {
       Alert.alert('Error', 'Failed to get location: ' + (error as Error).message);
     }
@@ -161,7 +175,12 @@ export default function DamageReportForm() {
       Alert.alert('Error', 'Please enter an address');
       return;
     }
-    
+
+    if (isOffline) {
+      Alert.alert('Offline', 'Cannot geocode address while offline. Please connect to the internet and try again.');
+      return;
+    }
+
     try {
       const geocode = await Location.geocodeAsync(address);
       if (geocode.length > 0) {
@@ -171,7 +190,8 @@ export default function DamageReportForm() {
       } else {
         Alert.alert('Error', 'Address not found');
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.warn('Geocode failed:', error?.message || error);
       Alert.alert('Error', 'Failed to geocode address: ' + (error as Error).message);
     }
   };

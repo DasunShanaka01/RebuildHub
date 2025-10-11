@@ -15,7 +15,7 @@ export default function NgoTabsLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: true,
+        headerShown: false,
       }}
     >
       <Tabs.Screen

@@ -208,7 +208,7 @@ export default function NGOReportView() {
 
   return (
     <View style={styles.container}>
-      <BackButton />
+      {/* <BackButton /> */}
       
       {/* <View style={styles.header}>
         <Text style={styles.title}>NGO Dashboard</Text>

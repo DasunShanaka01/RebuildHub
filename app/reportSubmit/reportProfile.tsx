@@ -6,6 +6,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import NetInfo from '@react-native-community/netinfo';
 import { auth, db } from '../../FirebaseConfig';
 import BackButton from '../../components/BackButton';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
@@ -215,18 +216,26 @@ export default function ReportProfile() {
         accuracy: Location.Accuracy.High,
       });
       setEditLocation(loc.coords);
-      
-      const reverseGeocode = await Location.reverseGeocodeAsync({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-      });
-      
-      if (reverseGeocode.length > 0) {
-        const addr = reverseGeocode[0];
-        const fullAddress = `${addr.street || ''} ${addr.city || ''} ${addr.region || ''} ${addr.country || ''}`.trim();
-        setEditAddress(fullAddress);
+      // Only attempt reverse geocoding when online
+      try {
+        const net = await NetInfo.fetch();
+        if (net.isConnected) {
+          const reverseGeocode = await Location.reverseGeocodeAsync({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+          if (reverseGeocode.length > 0) {
+            const addr = reverseGeocode[0];
+            const fullAddress = `${addr.street || ''} ${addr.city || ''} ${addr.region || ''} ${addr.country || ''}`.trim();
+            setEditAddress(fullAddress);
+          }
+        } else {
+          console.log('Offline - skipping reverse geocode in edit view');
+        }
+      } catch (geErr) {
+        console.warn('Reverse geocode in edit view failed:', (geErr as any).message || geErr);
       }
-      
+
       Alert.alert('Location Captured', `Address: ${editAddress || 'Unknown'}`);
     } catch (error) {
       Alert.alert('Error', 'Failed to get location: ' + (error as Error).message);
@@ -240,6 +249,11 @@ export default function ReportProfile() {
     }
     
     try {
+      const net = await NetInfo.fetch();
+      if (!net.isConnected) {
+        Alert.alert('Offline', 'Cannot geocode address while offline. Please connect to the internet and try again.');
+        return;
+      }
       const geocode = await Location.geocodeAsync(editAddress);
       if (geocode.length > 0) {
         const coords = geocode[0];

@@ -85,7 +85,7 @@ const ProfileScreen: React.FC = () => {
       </TouchableOpacity>
 
       <TouchableOpacity style={[styles.button, styles.reportButton]} onPress={() => router.replace('/reportSubmit/reportProfile')}>
-        <Text style={styles.buttonText}>Go to Report</Text>
+        <Text style={styles.buttonText}>View Your Reports</Text>
       </TouchableOpacity>
 
       <TouchableOpacity style={[styles.button, styles.ngoButton]} onPress={() => router.replace('/reportSubmit/ngoReportViwe')}>
