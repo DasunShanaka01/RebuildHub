@@ -16,15 +16,9 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, onSnapshot, query ,addDoc,serverTimestamp} from "firebase/firestore";
 import { auth, db } from "../../FirebaseConfig";
 import { Picker } from "@react-native-picker/picker";
-<<<<<<< HEAD
-import { FaAngleDown } from 'react-icons/fa';
-import Icon from 'react-native-vector-icons/FontAwesome';
-=======
 import Icon from "react-native-vector-icons/FontAwesome";
 import { Animated } from "react-native";
 import { useRef } from "react";
-
->>>>>>> 7dfe8f266d7f2bcc42f4ede94b973e5078244793
 
 interface Report {
   id: string;
@@ -613,45 +607,6 @@ export default function Index() {
           <Text style={styles.modalTitleRed}>Emergency 🚨</Text>
           <Text style={styles.modalText}>Select the type of disaster you are facing:</Text>
 
-<<<<<<< HEAD
-      {/* Emergency Popup */}
-      <Modal
-        transparent={true}
-        animationType="slide"
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitleRed}> Emergency Aid 🚨</Text>
-
-            <Text style={styles.modalText}>
-              Please select the type of emergency:
-            </Text>
-
-            <View style={styles.pickerContainer}>
-              <Picker
-                selectedValue={selectedEmergency}
-                style={styles.picker}
-                onValueChange={(itemValue) => setSelectedEmergency(itemValue)}
-              >
-                <Picker.Item label="Select Emergency " value="" />
-                <Picker.Item label="Earthquakes" value="Earthquakes" />
-                <Picker.Item label="Tsunamis" value="Tsunamis" />
-                <Picker.Item label="Landslides" value="Landslides" />
-                <Picker.Item label="Floods" value="Floods" />
-                <Picker.Item label="Droughts" value="Droughts" />
-                <Picker.Item label="Wildfires" value="Wildfires" />
-              </Picker>
-              <Icon name="angle-down" size={20} color="#000" style={styles.pickerIcon} />
-            </View>
-
-            {selectedEmergency ? (
-              <Text style={styles.selectedText}>
-                Selected: {selectedEmergency}
-              </Text>
-            ) : null}
-=======
           {/* Disaster Type Buttons */}
           <View style={styles.emergencyButtonContainer}>
             {[
@@ -674,7 +629,6 @@ export default function Index() {
               </TouchableOpacity>
             ))}
           </View>
->>>>>>> 7dfe8f266d7f2bcc42f4ede94b973e5078244793
 
           {/* Confirm / Cancel Buttons */}
           <View style={{ flexDirection: "row", justifyContent: "space-around", marginTop: 20 }}>
@@ -828,28 +782,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: "center",
     color: "#333",
-<<<<<<< HEAD
-  },
-  pickerContainer: {
-    position: 'relative',
-    marginBottom: 16,
-=======
->>>>>>> 7dfe8f266d7f2bcc42f4ede94b973e5078244793
   },
   picker: {
     height: 50,
     marginBottom: 16,
-<<<<<<< HEAD
-    color: "#333",
-  },
-  pickerIcon: {
-    position: 'absolute',
-    right: 12,
-    top: 15,
-    zIndex: 1,
-=======
     color: "#333"
->>>>>>> 7dfe8f266d7f2bcc42f4ede94b973e5078244793
   },
   selectedText: {
     fontSize: 14,
