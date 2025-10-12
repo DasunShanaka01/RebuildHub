@@ -256,7 +256,7 @@ export default function Index() {
       //   pathname: "/Emergency/QRCodeScreen",
       //   params: { emergencyId: docRef.id }
       // });
-      Alert.alert("Emergency Submitted", `Your emergency has been reported. Help is on the way! Your emergency ID is ${docRef.id}`);
+      Alert.alert("Emergency Reported", `Your emergency has been submitted. Emergency ID: ${docRef.id}`);
     } catch (error) {
       console.error("Error submitting emergency:", error);
       Alert.alert("Error", "Failed to submit emergency");
@@ -551,11 +551,9 @@ export default function Index() {
     >
       <View style={styles.successOverlay}>
         <View style={styles.successBox}>
-          <Text style={styles.successEmoji}>🎉</Text>
-          <Text style={styles.successTitle}>Emergency Submitted!</Text>
+          <Text style={styles.successTitle}>Emergency Reported</Text>
           <Text style={styles.successMessage}>
-            Don't Worry about this <Text style={{ fontWeight: "bold" }}>{submittedType}</Text> issue.
-            Help is on the way 🚑
+            Your <Text style={{ fontWeight: "600" }}>{submittedType}</Text> emergency has been submitted. Emergency services have been notified.
           </Text>
           <TouchableOpacity
             style={styles.successButton}
@@ -784,15 +782,15 @@ successOverlay: {
 
 successBox: {
   backgroundColor: "#fff",
-  borderRadius: 20,
-  padding: 25,
+  borderRadius: 12,
+  padding: 20,
   width: "85%",
   alignItems: "center",
   shadowColor: "#000",
-  shadowOpacity: 0.25,
-  shadowOffset: { width: 0, height: 3 },
-  shadowRadius: 6,
-  elevation: 5,
+  shadowOpacity: 0.15,
+  shadowOffset: { width: 0, height: 2 },
+  shadowRadius: 4,
+  elevation: 3,
 },
 
 successEmoji: {
@@ -801,24 +799,25 @@ successEmoji: {
 },
 
 successTitle: {
-  fontSize: 22,
-  fontWeight: "bold",
-  color: "#4CAF50",
+  fontSize: 18,
+  fontWeight: "600",
+  color: "#1F2937",
   marginBottom: 8,
 },
 
 successMessage: {
-  fontSize: 16,
-  color: "#333",
+  fontSize: 14,
+  color: "#4B5563",
   textAlign: "center",
   marginBottom: 20,
+  lineHeight: 20,
 },
 
 successButton: {
-  backgroundColor: "#4CAF50",
+  backgroundColor: "#3B82F6",
   paddingVertical: 10,
   paddingHorizontal: 25,
-  borderRadius: 8,
+  borderRadius: 6,
 },
 
 successButtonText: {
