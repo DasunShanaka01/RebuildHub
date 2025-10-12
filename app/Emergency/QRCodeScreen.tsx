@@ -262,6 +262,15 @@ import { useLocalSearchParams } from 'expo-router';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../FirebaseConfig';
 
+interface UserInfo {
+  uid: string;
+  name: string;
+  address: string;
+  phone: string;
+  email: string;
+  createdAt?: any;
+}
+
 interface EmergencyData {
   id?: string;
   type: string;
@@ -272,12 +281,7 @@ interface EmergencyData {
   };
   createdAt: any;
   status: string;
-  user?: {
-    name?: string;
-    email?: string;
-    address?: string;
-    phone?: string;
-  };
+  user?: UserInfo;
 }
 
 export default function QRCodeScreen() {
@@ -285,6 +289,19 @@ export default function QRCodeScreen() {
   const [loading, setLoading] = useState(true);
   const [emergencyData, setEmergencyData] = useState<EmergencyData | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchUserInfo = async (userId: string): Promise<UserInfo | null> => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', userId));
+      if (userDoc.exists()) {
+        return userDoc.data() as UserInfo;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching user info:', error);
+      return null;
+    }
+  };
 
   useEffect(() => {
     const fetchEmergencyData = async () => {
@@ -299,9 +316,26 @@ export default function QRCodeScreen() {
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
-          const data = docSnap.data() as EmergencyData;
+          const data = docSnap.data() as Omit<EmergencyData, 'id' | 'user'>;
           console.log('Emergency data fetched:', data); // Debug log
-          setEmergencyData(data);
+          
+          // Fetch user information if userId exists
+          let userInfo: UserInfo | null = null;
+          if (data.userId) {
+            console.log('Fetching user info for userId:', data.userId);
+            userInfo = await fetchUserInfo(data.userId);
+            console.log('User info fetched:', userInfo); // Debug log
+          } else {
+            console.log('No userId found in emergency data');
+          }
+          
+          const emergencyWithUser: EmergencyData = {
+            id: emergencyId as string,
+            ...data,
+            user: userInfo || undefined
+          };
+          
+          setEmergencyData(emergencyWithUser);
         } else {
           setError("Emergency not found");
         }
@@ -323,15 +357,20 @@ export default function QRCodeScreen() {
   };
 
     const generateQRData = () => {
-    if (!emergencyData) return '';
+    if (!emergencyData) return 'Emergency data not available';
 
     const { location } = emergencyData;
-    if (!location || !location.latitude || !location.longitude) return '';
-
-    const googleMapsLink = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
-    let emergencyDetails = `Type: ${emergencyData.type}\n`;
-    emergencyDetails += `Location: ${location.latitude}, ${location.longitude}\n`;
+    let emergencyDetails = `Emergency ID: ${emergencyId}\n`;
+    emergencyDetails += `Type: ${emergencyData.type}\n`;
     emergencyDetails += `Status: ${emergencyData.status}\n`;
+    
+    if (location && location.latitude && location.longitude) {
+      const googleMapsLink = `https://www.google.com/maps?q=${location.latitude},${location.longitude}`;
+      emergencyDetails += `Location: ${location.latitude}, ${location.longitude}\n`;
+      emergencyDetails = googleMapsLink + '\n' + emergencyDetails;
+    } else {
+      emergencyDetails += `Location: Not provided\n`;
+    }
     
     // Safe access to user data
     if (emergencyData.user?.name) {
@@ -342,9 +381,11 @@ export default function QRCodeScreen() {
       if (emergencyData.user.address) {
         emergencyDetails += `\nAddress: ${emergencyData.user.address}`;
       }
+    } else {
+      emergencyDetails += `User: Information not available`;
     }
 
-    return googleMapsLink + '\n' + emergencyDetails;
+    return emergencyDetails;
     };
 
   if (loading) {
