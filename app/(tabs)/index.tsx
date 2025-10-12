@@ -56,6 +56,7 @@ export default function Index() {
   const [emergencies, setEmergencies] = useState<
   { id: string; type: string; location: { latitude: number; longitude: number } }[]
 >([]);
+  const [mapReady, setMapReady] = useState(false);
   // Ripple animation reference for emergency markers
   const rippleAnim = useRef(new Animated.Value(0)).current;
 
@@ -322,21 +323,24 @@ export default function Index() {
 }, []);
 
   useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(rippleAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(rippleAnim, {
-          toValue: 0,
-          duration: 0,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  }, [rippleAnim]);
+    // Only start animation if there are emergencies to show
+    if (emergencies.length > 0) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(rippleAnim, {
+            toValue: 1,
+            duration: 2000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(rippleAnim, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    }
+  }, [rippleAnim, emergencies.length]);
 
 
    const handleEmergencySubmit = async () => {
@@ -356,6 +360,7 @@ export default function Index() {
 
       setModalVisible(false);
       setSelectedEmergency("");
+      
       
       Alert.alert("Emergency Submitted", `Your emergency has been reported. Help is on the way! Your emergency ID is ${docRef.id}`);
     } catch (error) {
@@ -456,9 +461,20 @@ export default function Index() {
           showsUserLocation={true}
           minZoomLevel={2}
           maxZoomLevel={20}
+          // Performance optimizations
+          moveOnMarkerPress={false}
+          toolbarEnabled={false}
+          loadingEnabled={true}
+          loadingIndicatorColor="#2196F3"
+          loadingBackgroundColor="#fff"
+          onMapReady={() => {
+            console.log('Map is ready');
+            setMapReady(true);
+          }}
+          onRegionChangeComplete={() => console.log('Region change complete')}
         >
           {/* ALWAYS use clusters - no individual report rendering */}
-          {clusters.map((cluster, index) => {
+          {mapReady && clusters.slice(0, 50).map((cluster, index) => {
             const colors = getSeverityColors(cluster.severity);
             const markerSize = getClusterMarkerSize(cluster.count);
             const circleRadius = getClusterCircleRadius(cluster.count, cluster.severity);
@@ -537,34 +553,34 @@ export default function Index() {
             />
           ))}
           
-          {/* Emergencies (not clustered) */}
-          {emergencies.map((em) => (
+          {/* Emergencies (not clustered) - Limit to 20 for performance */}
+          {mapReady && emergencies.slice(0, 20).map((em) => (
             <React.Fragment key={`em-${em.id}`}>
               <Marker coordinate={em.location} tracksViewChanges={false}>
                 <View
                   style={{
                     alignItems: "center",
                     justifyContent: "center",
-                    overflow: "visible",
                   }}
-                  pointerEvents="none"
                 >
-                  <Animated.View
-                  style={{
-                    position: "absolute",
-                    top: -60,
-                    left: -60,
-                    width: 160,
-                    height: 160,
-                    borderRadius: 80,
-                    backgroundColor: "rgba(75,0,130,0.15)",
-                    borderWidth: 2,
-                    borderColor: "rgba(75,0,130,0.6)",
-                    transform: [{ scale: rippleScale }],
-                    opacity: rippleOpacity,
-                    zIndex: -1,
-                  }}
-                />
+                  {/* Simplified ripple effect - only show for first 5 emergencies */}
+                  {emergencies.indexOf(em) < 5 && (
+                    <Animated.View
+                    style={{
+                      position: "absolute",
+                      top: -30,
+                      left: -30,
+                      width: 100,
+                      height: 100,
+                      borderRadius: 50,
+                      backgroundColor: "rgba(75,0,130,0.1)",
+                      borderWidth: 1,
+                      borderColor: "rgba(75,0,130,0.4)",
+                      transform: [{ scale: rippleScale }],
+                      opacity: rippleOpacity,
+                    }}
+                  />
+                  )}
 
                   {/* 🚨 Marker */}
                   <View
@@ -745,7 +761,7 @@ export default function Index() {
             <TouchableOpacity
               style={[styles.closeButton, { backgroundColor: "red", width: "40%" }]}
               onPress={() => {
-                setSelectedEmergency(null);
+                setSelectedEmergency("");
                 setModalVisible(false);
               }}
             >
