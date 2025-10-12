@@ -48,6 +48,12 @@
     "experiments": {
       "typedRoutes": true
     },
-    "entryPoint": "./node_modules/expo-router/entry"
+    "entryPoint": "./node_modules/expo-router/entry",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1b2ac1b1-a288-4593-96e8-1c5625c7c3fd"
+      }
+    }
   }
 }
