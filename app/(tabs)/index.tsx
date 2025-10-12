@@ -25,13 +25,6 @@ interface Report {
   severity: "low" | "medium" | "high";
 }
 
-interface Cluster {
-  severity: "low" | "medium" | "high";
-  count: number;
-  center: { latitude: number; longitude: number };
-  reports: Report[];
-}
-
 export default function Index() {
   const [locationPermission, setLocationPermission] = useState(false);
   const [user, setUser] = useState<import("firebase/auth").User | null>(null);
@@ -41,7 +34,6 @@ export default function Index() {
     longitude: number;
   } | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
-  const [clusters, setClusters] = useState<Cluster[]>([]);
   const [isSafe, setIsSafe] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedEmergency, setSelectedEmergency] = useState("");
@@ -53,9 +45,6 @@ export default function Index() {
   const [emergencies, setEmergencies] = useState<
   { id: string; type: string; location: { latitude: number; longitude: number } }[]
 >([]);
-  // Ripple animation reference for emergency markers
-  const rippleAnim = useRef(new Animated.Value(0)).current;
-
 
 
 
@@ -129,97 +118,23 @@ export default function Index() {
     return unsubscribe;
   }, []);
 
-  // Cluster reports by severity and proximity
+  // Check if user is in danger zone
   useEffect(() => {
-    if (reports.length === 0) {
-      setClusters([]);
-      return;
-    }
+    if (!userLocation || reports.length === 0) return;
 
-    const CLUSTER_RADIUS_KM = 5; // 5km cluster radius
-    const clustered: Cluster[] = [];
-
-    // Group reports by severity first
-    const reportsBySeverity: Record<string, Report[]> = {
-      high: [],
-      medium: [],
-      low: []
-    };
-
-    reports.forEach(report => {
-      reportsBySeverity[report.severity].push(report);
-    });
-
-    // Track which reports have been clustered
-    const usedReports = new Set<string>();
-
-    // Cluster each severity group separately
-    Object.entries(reportsBySeverity).forEach(([severity, severityReports]) => {
-      severityReports.forEach((report, index) => {
-        if (usedReports.has(report.id)) return;
-
-        const cluster: Cluster = {
-          severity: severity as "low" | "medium" | "high",
-          count: 1,
-          center: { ...report.location },
-          reports: [report]
-        };
-
-        usedReports.add(report.id);
-
-        // Find nearby reports of same severity
-        severityReports.forEach((otherReport, otherIndex) => {
-          if (usedReports.has(otherReport.id) || report.id === otherReport.id) return;
-
-          const distance = getDistance(
-            report.location.latitude,
-            report.location.longitude,
-            otherReport.location.latitude,
-            otherReport.location.longitude
-          );
-
-          if (distance <= CLUSTER_RADIUS_KM * 1000) { // Convert km to meters
-            cluster.count++;
-            cluster.reports.push(otherReport);
-            usedReports.add(otherReport.id);
-            
-            // Update cluster center (average position)
-            cluster.center.latitude = cluster.reports.reduce((sum, r) => sum + r.location.latitude, 0) / cluster.reports.length;
-            cluster.center.longitude = cluster.reports.reduce((sum, r) => sum + r.location.longitude, 0) / cluster.reports.length;
-          }
-        });
-
-        clustered.push(cluster);
-      });
-    });
-
-    // Add any remaining unclustered reports as single-report clusters
-    reports.forEach(report => {
-      if (!usedReports.has(report.id)) {
-        clustered.push({
-          severity: report.severity,
-          count: 1,
-          center: report.location,
-          reports: [report]
-        });
-      }
-    });
-
-    setClusters(clustered);
-  }, [reports]);
-
-  // Check if user is in danger zone - use clusters for danger calculation
-  useEffect(() => {
-    if (!userLocation || clusters.length === 0) return;
-
-    const inDanger = clusters.some((cluster) => {
-      const radius = getClusterCircleRadius(cluster.count, cluster.severity);
+    const inDanger = reports.some((report) => {
+      const radius =
+        report.severity === "high"
+          ? 1500
+          : report.severity === "medium"
+          ? 1000
+          : 500;
 
       const distance = getDistance(
         userLocation.latitude,
         userLocation.longitude,
-        cluster.center.latitude,
-        cluster.center.longitude
+        report.location.latitude,
+        report.location.longitude
       );
 
       return distance <= radius;
@@ -228,20 +143,20 @@ export default function Index() {
     setIsSafe(!inDanger);
 
     // Track high severity zones the user is inside
-    const insideHigh = clusters
-      .filter((cluster) => cluster.severity === "high")
-      .filter((cluster) => {
+    const insideHigh = reports
+      .filter((r) => r.severity === "high")
+      .filter((r) => {
         const distance = getDistance(
           userLocation.latitude,
           userLocation.longitude,
-          cluster.center.latitude,
-          cluster.center.longitude
+          r.location.latitude,
+          r.location.longitude
         );
-        return distance <= getClusterCircleRadius(cluster.count, "high");
+        return distance <= 1500;
       })
-      .map((cluster) => cluster.center);
+      .map((r) => r.location);
     setHighDangerZones(insideHigh);
-  }, [userLocation, clusters]);
+  }, [userLocation, reports]);
 
   // Blink/pulse animation for high danger zones
   useEffect(() => {
@@ -295,22 +210,27 @@ export default function Index() {
   return unsubscribe;
 }, []);
 
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(rippleAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(rippleAnim, {
-          toValue: 0,
-          duration: 0,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  }, [rippleAnim]);
+  // // Handle emergency submission
+  // const handleSaveEmergency = () => {
+  //   if (!selectedEmergency) {
+  //     Alert.alert("Error", "Please select an emergency type");
+  //     return;
+  //   }
+    
+  //   Alert.alert(
+  //     "Emergency Submitted",
+  //     `Emergency type: ${selectedEmergency} has been reported. Help is on the way!`,
+  //     [
+  //       {
+  //         text: "OK",
+  //         onPress: () => {
+  //           setModalVisible(false);
+  //           setSelectedEmergency("");
+  //         }
+  //       }
+  //     ]
+  //   );
+  // };
 
 
    const handleEmergencySubmit = async () => {
@@ -331,6 +251,11 @@ export default function Index() {
       setModalVisible(false);
       setSelectedEmergency("");
       
+      // Redirect to QR code screen with the emergency ID
+      // router.push({
+      //   pathname: "/Emergency/QRCodeScreen",
+      //   params: { emergencyId: docRef.id }
+      // });
       Alert.alert("Emergency Submitted", `Your emergency has been reported. Help is on the way! Your emergency ID is ${docRef.id}`);
     } catch (error) {
       console.error("Error submitting emergency:", error);
@@ -373,31 +298,6 @@ export default function Index() {
     return R * c;
   };
 
-  const rippleScale = rippleAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.8, 2],
-  });
-
-  const rippleOpacity = rippleAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.6, 0],
-  });
-
-  // Function to get cluster marker size based on count
-  const getClusterMarkerSize = (count: number) => {
-    if (count >= 20) return 50;
-    if (count >= 10) return 40;
-    if (count >= 5) return 35;
-    return 30;
-  };
-
-  // Function to get cluster circle radius based on count
-  const getClusterCircleRadius = (count: number, severity: string) => {
-    const baseRadius = severity === "high" ? 1500 : severity === "medium" ? 1000 : 500;
-    return baseRadius * Math.min(2, 1 + count * 0.1); // Scale radius based on count, max 2x
-  };
-
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -431,65 +331,48 @@ export default function Index() {
           minZoomLevel={2}
           maxZoomLevel={20}
         >
-          {/* ALWAYS use clusters - no individual report rendering */}
-          {clusters.map((cluster, index) => {
-            const colors = getSeverityColors(cluster.severity);
-            const markerSize = getClusterMarkerSize(cluster.count);
-            const circleRadius = getClusterCircleRadius(cluster.count, cluster.severity);
-            
+          {reports.map((report) => {
+            const colors = getSeverityColors(report.severity);
             return (
-              <React.Fragment key={`cluster-${cluster.severity}-${index}`}>
-                <Marker coordinate={cluster.center} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
-                  <View style={[styles.clusterMarkerContainer, { width: markerSize, height: markerSize }]}>
-                    <View style={[styles.clusterMarker, { 
-                      backgroundColor: colors.main, 
-                      borderColor: colors.dark,
-                      width: markerSize,
-                      height: markerSize,
-                      borderRadius: markerSize / 2
-                    }]}>
-                      <Text style={[
-                        styles.clusterMarkerText,
-                        { fontSize: markerSize >= 40 ? 14 : 12 }
-                      ]}>
-                        {cluster.count}
-                      </Text>
-                      <Text style={[
-                        styles.clusterSeverityText,
-                        { fontSize: markerSize >= 40 ? 10 : 8 }
-                      ]}>
-                        {cluster.severity.charAt(0).toUpperCase()}
+              <React.Fragment key={report.id}>
+                <Marker coordinate={report.location} anchor={{ x: 0.5, y: 1 }} tracksViewChanges={false}>
+                  <View style={styles.markerContainer}>
+                    <View style={styles.markerShadow} />
+                    <View style={[styles.markerPin, { backgroundColor: colors.main, borderColor: colors.dark }]}>
+                      <Text style={styles.markerLabel}>
+                        {report.severity === "high" ? "H" : report.severity === "medium" ? "M" : "L"}
                       </Text>
                     </View>
+                    <View style={[styles.markerTail, { borderTopColor: colors.main }]} />
+                    <View style={[styles.markerDot, { backgroundColor: colors.dark }]} />
                   </View>
                   <Callout tooltip>
-                    <View style={styles.clusterCalloutBox}>
-                      <Text style={styles.clusterCalloutTitle}>
-                        {cluster.severity.toUpperCase()} Severity Cluster
-                      </Text>
-                      <Text style={styles.clusterCalloutCount}>
-                        {cluster.count} reports in this area
-                      </Text>
-                      <Text style={styles.clusterCalloutSub}>
-                        {`Center: lat ${cluster.center.latitude.toFixed(4)}, lng ${cluster.center.longitude.toFixed(4)}`}
-                      </Text>
+                    <View style={styles.calloutBox}>
+                      <Text style={styles.calloutTitle}>Severity: {report.severity.toUpperCase()}</Text>
+                      <Text style={styles.calloutSub}>{`lat ${report.location.latitude.toFixed(4)}, lng ${report.location.longitude.toFixed(4)}`}</Text>
                     </View>
                   </Callout>
                 </Marker>
                 <Circle
-                  center={cluster.center}
-                  radius={circleRadius}
+                  center={report.location}
+                  radius={
+                    report.severity === "high"
+                      ? 1500
+                      : report.severity === "medium"
+                      ? 1000
+                      : 500
+                  }
                   fillColor={
-                    cluster.severity === "high"
+                    report.severity === "high"
                       ? "rgba(255,0,0,0.3)"
-                      : cluster.severity === "medium"
+                      : report.severity === "medium"
                       ? "rgba(255,165,0,0.3)"
                       : "rgba(0,128,0,0.3)"
                   }
                   strokeColor={
-                    cluster.severity === "high"
+                    report.severity === "high"
                       ? "red"
-                      : cluster.severity === "medium"
+                      : report.severity === "medium"
                       ? "orange"
                       : "green"
                   }
@@ -498,7 +381,6 @@ export default function Index() {
               </React.Fragment>
             );
           })}
-
           {/* Blinking circles for high-severity zones that include the user */}
           {highDangerZones.map((center, idx) => (
             <Circle
@@ -510,47 +392,21 @@ export default function Index() {
               strokeWidth={2}
             />
           ))}
-          
-          {/* Emergencies (not clustered) */}
           {emergencies.map((em) => (
             <React.Fragment key={`em-${em.id}`}>
-              <Marker coordinate={em.location} tracksViewChanges={false}>
-                <View
-                  style={{
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "visible",
-                  }}
-                  pointerEvents="none"
-                >
-                  <Animated.View
-                  style={{
-                    position: "absolute",
-                    top: -60,
-                    left: -60,
-                    width: 160,
-                    height: 160,
-                    borderRadius: 80,
-                    backgroundColor: "rgba(75,0,130,0.15)",
-                    borderWidth: 2,
-                    borderColor: "rgba(75,0,130,0.6)",
-                    transform: [{ scale: rippleScale }],
-                    opacity: rippleOpacity,
-                    zIndex: -1,
-                  }}
-                />
-
-                  {/* 🚨 Marker */}
+              <Marker coordinate={em.location}>
+                <View style={{ alignItems: "center" }}>
                   <View
                     style={{
                       width: 40,
                       height: 40,
-                      backgroundColor: "#4B0082",
+                      backgroundColor: "#4B0082", // deep purple
                       borderRadius: 20,
                       borderWidth: 2,
                       borderColor: "#fff",
                       justifyContent: "center",
                       alignItems: "center",
+                      transform: [{ scale: 1 }],
                       shadowColor: "#000",
                       shadowOpacity: 0.3,
                       shadowOffset: { width: 0, height: 2 },
@@ -559,7 +415,6 @@ export default function Index() {
                     <Text style={{ color: "#fff", fontWeight: "bold", fontSize: 12 }}>🚨</Text>
                   </View>
                 </View>
-
                 <Callout tooltip>
                   <View
                     style={{
@@ -596,6 +451,17 @@ export default function Index() {
       <Link href="/reportSubmit/report" style={styles.button}>
         <Text style={styles.buttonText}>Go to Report</Text>
       </Link>
+
+      {/* Emergency Button → opens popup */}
+      {/* <TouchableOpacity
+        style={styles.Redbutton}
+        onPress={() => setModalVisible(true)}
+      >
+        <Text style={styles.buttonText}>Emergency Button</Text>
+      </TouchableOpacity> */}
+
+      {/* Emergency Popup */}
+      
 
     <Modal
       transparent={true}
@@ -861,55 +727,6 @@ const styles = StyleSheet.create({
   calloutSub: {
     fontSize: 12,
     color: "#555",
-  },
-
-  // Cluster marker styles
-  clusterMarkerContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  clusterMarker: {
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 5,
-  },
-  clusterMarkerText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  clusterSeverityText: {
-    color: "#fff",
-    fontWeight: "bold",
-    marginTop: -2,
-  },
-  clusterCalloutBox: {
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderColor: "#e0e0e0",
-    borderWidth: 1,
-    minWidth: 200,
-  },
-  clusterCalloutTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  clusterCalloutCount: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 4,
-    color: "#333",
-  },
-  clusterCalloutSub: {
-    fontSize: 12,
-    color: "#666",
   },
 
   pickerContainer: {
