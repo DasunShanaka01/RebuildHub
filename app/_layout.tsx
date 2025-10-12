@@ -53,27 +53,16 @@ function RootLayoutNav() {
     <SyncProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
-        </Stack>
-      </ThemeProvider>
-    </SyncProvider>
-  );
-
-  return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <SyncProvider>
-        <Stack>
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="register" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="(ngo)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="modal" options={{ presentation: 'modal', headerShown: false }} />
           <Stack.Screen name="reportSubmit/report" options={{ headerShown: false }} />
           <Stack.Screen name="reportSubmit/reportProfile" options={{ headerShown: false }} />
           <Stack.Screen name="reportSubmit/ngoReportViwe" options={{ headerShown: false }} />
         </Stack>
-      </SyncProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </SyncProvider>
   );
 }
