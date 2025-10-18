@@ -45,6 +45,7 @@ export default function Index() {
   const [emergencies, setEmergencies] = useState<
   { id: string; type: string; location: { latitude: number; longitude: number } }[]
 >([]);
+  const [emergencyButtonBlink, setEmergencyButtonBlink] = useState(new Animated.Value(1));
 
 
 
@@ -175,6 +176,26 @@ export default function Index() {
       clearInterval(id);
     };
   }, [highDangerZones.length]);
+
+  // Blinking animation for emergency button
+  useEffect(() => {
+    const blinkAnimation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(emergencyButtonBlink, {
+          toValue: 0.3,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(emergencyButtonBlink, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    blinkAnimation.start();
+    return () => blinkAnimation.stop();
+  }, []);
 
   useEffect(() => {
   const q = query(collection(db, "emergencies"));
@@ -310,12 +331,14 @@ export default function Index() {
       </View>
 
 
-      <TouchableOpacity
-        style={styles.Redbutton}
-        onPress={() => setModalVisible(true)}
-      >
-        <Text style={styles.buttonText}>Report an EMERGENCY</Text>
-      </TouchableOpacity>
+      <Animated.View style={{ opacity: emergencyButtonBlink }}>
+        <TouchableOpacity
+          style={styles.RedbuttonBlinking}
+          onPress={() => setModalVisible(true)}
+        >
+          <Text style={styles.buttonText}>Report an EMERGENCY</Text>
+        </TouchableOpacity>
+      </Animated.View>
 
       {locationPermission && userLocation ? (
         <MapView
@@ -574,79 +597,174 @@ export default function Index() {
 
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#eef2f5", padding: 16 },
+  container: { 
+    flex: 1, 
+    backgroundColor: "#f8fafc", 
+    padding: 16,
+  },
   header: {
     backgroundColor: "#fff",
-    padding: 16,
-    borderRadius: 12,
+    padding: 20,
+    borderRadius: 16,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
-    marginBottom: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+    marginBottom: 16,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
-  title: { fontSize: 26, fontWeight: "bold", color: "#222" },
-  subtitle: { fontSize: 18, marginTop: 8 },
-  safeText: { color: "green", fontWeight: "600" },
-  dangerText: { color: "red", fontWeight: "700" },
+  title: { 
+    fontSize: 28, 
+    fontWeight: "800", 
+    color: "#1a202c",
+    textAlign: "center",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  subtitle: { 
+    fontSize: 18, 
+    marginTop: 8,
+    textAlign: "center",
+    letterSpacing: 0.3,
+  },
+  safeText: { 
+    color: "#10b981", 
+    fontWeight: "700",
+    textShadowColor: "rgba(16, 185, 129, 0.3)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  dangerText: { 
+    color: "#ef4444", 
+    fontWeight: "800",
+    textShadowColor: "rgba(239, 68, 68, 0.3)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
   map: {
     width: "100%",
-    height: 400,
-    borderRadius: 12,
-    marginBottom: 16,
+    height: 420,
+    borderRadius: 16,
+    marginBottom: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 2,
+    borderColor: "#e2e8f0",
   },
   permissionText: {
     textAlign: "center",
     fontSize: 16,
-    color: "#777",
-    marginBottom: 16,
+    color: "#64748b",
+    marginBottom: 20,
+    padding: 16,
+    backgroundColor: "#f1f5f9",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    fontStyle: "italic",
   },
   button: {
-    backgroundColor: "#2196F3",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    marginTop: 16,
+    backgroundColor: "#3b82f6",
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+    marginTop: 20,
     textAlign: "center",
+    shadowColor: "#3b82f6",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: "#2563eb",
   },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "bold", textAlign: "center" },
-  Redbutton: {
-    backgroundColor: "#eb4949ff",
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    marginTop: 16,
+  buttonText: { 
+    color: "#fff", 
+    fontSize: 16, 
+    fontWeight: "700", 
     textAlign: "center",
-    
+    letterSpacing: 0.5,
+    textShadowColor: "rgba(0, 0, 0, 0.2)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  Redbutton: {
+    backgroundColor: "#ef4444",
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 14,
+    marginTop: 20,
+    textAlign: "center",
+    shadowColor: "#ef4444",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: "#dc2626",
+  },
+  RedbuttonBlinking: {
+    backgroundColor: "#ef4444",
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 14,
+    marginTop: 20,
+    textAlign: "center",
+    shadowColor: "#ef4444",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: "#dc2626",
+    // Blinking animation will be handled by Animated.View
   },
   // Modal styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "center",
     alignItems: "center",
+    padding: 20,
   },
   modalContent: {
     backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 20,
-    width: "90%",
-    maxWidth: 400,
+    borderRadius: 20,
+    padding: 24,
+    width: "95%",
+    maxWidth: 420,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
   modalTitleRed: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#E53935",
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#dc2626",
     textAlign: "center",
-    marginBottom: 16,
+    marginBottom: 20,
+    letterSpacing: 0.5,
+    textShadowColor: "rgba(220, 38, 38, 0.3)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   modalText: {
     fontSize: 16,
-    marginBottom: 16,
+    marginBottom: 20,
     textAlign: "center",
-    color: "#333",
+    color: "#374151",
+    lineHeight: 24,
+    letterSpacing: 0.2,
   },
   picker: {
     height: 50,
@@ -739,92 +857,666 @@ const styles = StyleSheet.create({
   },
 
   emergencyButtonContainer: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  justifyContent: "center",
-  marginBottom: 16,
-  gap: 10,
-},
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    marginBottom: 20,
+    gap: 12,
+    paddingHorizontal: 8,
+  },
 
-emergencyButton: {
-  backgroundColor: "#f2f2f2",
-  paddingVertical: 10,
-  paddingHorizontal: 16,
-  borderRadius: 8,
-  margin: 5,
-  borderWidth: 1,
-  borderColor: "#ccc",
-  minWidth: 120,
-  alignItems: "center",
-},
+  emergencyButton: {
+    backgroundColor: "#f8fafc",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    margin: 4,
+    borderWidth: 2,
+    borderColor: "#e2e8f0",
+    minWidth: 130,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
 
-emergencyButtonSelected: {
-  backgroundColor: "#e5bf35ff",
-  borderColor: "#3c3737ff",
-},
+  emergencyButtonSelected: {
+    backgroundColor: "#fbbf24",
+    borderColor: "#f59e0b",
+    shadowColor: "#fbbf24",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+    transform: [{ scale: 1.05 }],
+  },
 
-emergencyButtonText: {
-  color: "#333",
-  fontSize: 15,
-  fontWeight: "600",
-},
+  emergencyButtonText: {
+    color: "#374151",
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textAlign: "center",
+  },
 
-emergencyButtonTextSelected: {
-  color: "#f10e0eff",
-},
+  emergencyButtonTextSelected: {
+    color: "#92400e",
+    fontWeight: "800",
+  },
 
 successOverlay: {
   flex: 1,
-  backgroundColor: "rgba(0,0,0,0.6)",
+  backgroundColor: "rgba(0,0,0,0.8)",
   justifyContent: "center",
   alignItems: "center",
+  padding: 20,
 },
 
 successBox: {
   backgroundColor: "#fff",
-  borderRadius: 12,
-  padding: 20,
-  width: "85%",
+  borderRadius: 20,
+  padding: 28,
+  width: "90%",
+  maxWidth: 380,
   alignItems: "center",
   shadowColor: "#000",
-  shadowOpacity: 0.15,
-  shadowOffset: { width: 0, height: 2 },
-  shadowRadius: 4,
-  elevation: 3,
+  shadowOpacity: 0.25,
+  shadowOffset: { width: 0, height: 8 },
+  shadowRadius: 16,
+  elevation: 8,
+  borderWidth: 1,
+  borderColor: "#e2e8f0",
 },
 
 successEmoji: {
-  fontSize: 48,
-  marginBottom: 10,
+  fontSize: 56,
+  marginBottom: 16,
+  textShadowColor: "rgba(0, 0, 0, 0.1)",
+  textShadowOffset: { width: 0, height: 2 },
+  textShadowRadius: 4,
 },
 
 successTitle: {
-  fontSize: 18,
-  fontWeight: "600",
-  color: "#1F2937",
-  marginBottom: 8,
+  fontSize: 22,
+  fontWeight: "800",
+  color: "#059669",
+  marginBottom: 12,
+  letterSpacing: 0.5,
+  textAlign: "center",
 },
 
 successMessage: {
-  fontSize: 14,
-  color: "#4B5563",
+  fontSize: 16,
+  color: "#374151",
   textAlign: "center",
-  marginBottom: 20,
-  lineHeight: 20,
+  marginBottom: 24,
+  lineHeight: 24,
+  letterSpacing: 0.2,
 },
 
 successButton: {
-  backgroundColor: "#3B82F6",
-  paddingVertical: 10,
-  paddingHorizontal: 25,
-  borderRadius: 6,
+  backgroundColor: "#10b981",
+  paddingVertical: 14,
+  paddingHorizontal: 32,
+  borderRadius: 12,
+  shadowColor: "#10b981",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.3,
+  shadowRadius: 8,
+  elevation: 4,
+  borderWidth: 1,
+  borderColor: "#059669",
 },
 
 successButtonText: {
   color: "#fff",
   fontSize: 16,
+  fontWeight: "700",
+  letterSpacing: 0.5,
+  textShadowColor: "rgba(0, 0, 0, 0.2)",
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 1,
+},
+
+// Additional modern styles
+statusIndicator: {
+  flexDirection: "row",
+  alignItems: "center",
+  justifyContent: "center",
+  marginTop: 8,
+  paddingHorizontal: 12,
+  paddingVertical: 6,
+  borderRadius: 20,
+  backgroundColor: "rgba(255, 255, 255, 0.9)",
+  borderWidth: 1,
+  borderColor: "#e2e8f0",
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.1,
+  shadowRadius: 4,
+  elevation: 2,
+},
+
+statusIcon: {
+  fontSize: 16,
+  marginRight: 6,
+},
+
+statusText: {
+  fontSize: 14,
+  fontWeight: "600",
+  letterSpacing: 0.3,
+},
+
+mapContainer: {
+  borderRadius: 16,
+  overflow: "hidden",
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.1,
+  shadowRadius: 8,
+  elevation: 4,
+  borderWidth: 2,
+  borderColor: "#e2e8f0",
+  marginBottom: 20,
+},
+
+buttonContainer: {
+  flexDirection: "row",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginTop: 20,
+  gap: 12,
+},
+
+primaryButton: {
+  flex: 1,
+  backgroundColor: "#3b82f6",
+  paddingVertical: 14,
+  paddingHorizontal: 20,
+  borderRadius: 12,
+  alignItems: "center",
+  shadowColor: "#3b82f6",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.3,
+  shadowRadius: 8,
+  elevation: 6,
+  borderWidth: 1,
+  borderColor: "#2563eb",
+},
+
+secondaryButton: {
+  flex: 1,
+  backgroundColor: "#6b7280",
+  paddingVertical: 14,
+  paddingHorizontal: 20,
+  borderRadius: 12,
+  alignItems: "center",
+  shadowColor: "#6b7280",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.3,
+  shadowRadius: 8,
+  elevation: 6,
+  borderWidth: 1,
+  borderColor: "#4b5563",
+},
+
+dangerZone: {
+  position: "absolute",
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: "rgba(239, 68, 68, 0.1)",
+  borderRadius: 16,
+  borderWidth: 2,
+  borderColor: "#ef4444",
+  borderStyle: "dashed",
+},
+
+warningBanner: {
+  backgroundColor: "#fef3c7",
+  padding: 12,
+  borderRadius: 8,
+  marginBottom: 16,
+  borderLeftWidth: 4,
+  borderLeftColor: "#f59e0b",
+  flexDirection: "row",
+  alignItems: "center",
+},
+
+warningIcon: {
+  fontSize: 20,
+  color: "#f59e0b",
+  marginRight: 8,
+},
+
+warningText: {
+  flex: 1,
+  color: "#92400e",
+  fontSize: 14,
+  fontWeight: "600",
+  lineHeight: 20,
+},
+
+safeBanner: {
+  backgroundColor: "#d1fae5",
+  padding: 12,
+  borderRadius: 8,
+  marginBottom: 16,
+  borderLeftWidth: 4,
+  borderLeftColor: "#10b981",
+  flexDirection: "row",
+  alignItems: "center",
+},
+
+safeIcon: {
+  fontSize: 20,
+  color: "#10b981",
+  marginRight: 8,
+},
+
+safeBannerText: {
+  flex: 1,
+  color: "#065f46",
+  fontSize: 14,
+  fontWeight: "600",
+  lineHeight: 20,
+},
+
+loadingContainer: {
+  flex: 1,
+  justifyContent: "center",
+  alignItems: "center",
+  backgroundColor: "#f8fafc",
+},
+
+loadingText: {
+  fontSize: 16,
+  color: "#64748b",
+  marginTop: 12,
+  fontWeight: "500",
+},
+
+spinner: {
+  width: 40,
+  height: 40,
+  borderWidth: 4,
+  borderColor: "#e2e8f0",
+  borderTopColor: "#3b82f6",
+  borderRadius: 20,
+},
+
+// Enhanced marker styles
+enhancedMarker: {
+  alignItems: "center",
+  justifyContent: "center",
+},
+
+markerGlow: {
+  position: "absolute",
+  width: 50,
+  height: 50,
+  borderRadius: 25,
+  backgroundColor: "rgba(59, 130, 246, 0.3)",
+  shadowColor: "#3b82f6",
+  shadowOffset: { width: 0, height: 0 },
+  shadowOpacity: 0.8,
+  shadowRadius: 10,
+  elevation: 5,
+},
+
+// Card styles
+infoCard: {
+  backgroundColor: "#fff",
+  borderRadius: 12,
+  padding: 16,
+  marginBottom: 12,
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.1,
+  shadowRadius: 4,
+  elevation: 3,
+  borderWidth: 1,
+  borderColor: "#e2e8f0",
+},
+
+cardTitle: {
+  fontSize: 16,
+  fontWeight: "700",
+  color: "#1f2937",
+  marginBottom: 8,
+  letterSpacing: 0.3,
+},
+
+cardContent: {
+  fontSize: 14,
+  color: "#6b7280",
+  lineHeight: 20,
+  letterSpacing: 0.2,
+},
+
+// Responsive design helpers
+responsiveContainer: {
+  paddingHorizontal: 16,
+  paddingVertical: 12,
+},
+
+// Animation helpers
+fadeIn: {
+  opacity: 1,
+},
+
+fadeOut: {
+  opacity: 0,
+},
+
+scaleIn: {
+  transform: [{ scale: 1 }],
+},
+
+scaleOut: {
+  transform: [{ scale: 0.95 }],
+},
+
+// Accessibility improvements
+accessibleButton: {
+  minHeight: 44,
+  minWidth: 44,
+  justifyContent: "center",
+  alignItems: "center",
+},
+
+accessibleText: {
+  fontSize: 16,
+  fontWeight: "600",
+  color: "#1f2937",
+},
+
+// Dark mode support (preparation)
+darkContainer: {
+  backgroundColor: "#111827",
+},
+
+darkText: {
+  color: "#f9fafb",
+},
+
+darkCard: {
+  backgroundColor: "#1f2937",
+  borderColor: "#374151",
+},
+
+// Additional modern UI enhancements
+glassmorphism: {
+  backgroundColor: "rgba(255, 255, 255, 0.25)",
+  borderRadius: 16,
+  borderWidth: 1,
+  borderColor: "rgba(255, 255, 255, 0.18)",
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 8 },
+  shadowOpacity: 0.1,
+  shadowRadius: 16,
+  elevation: 4,
+},
+
+neonGlow: {
+  shadowColor: "#00ff88",
+  shadowOffset: { width: 0, height: 0 },
+  shadowOpacity: 0.8,
+  shadowRadius: 20,
+  elevation: 8,
+},
+
+pulseAnimation: {
+  shadowColor: "#ef4444",
+  shadowOffset: { width: 0, height: 0 },
+  shadowOpacity: 0.6,
+  shadowRadius: 15,
+  elevation: 6,
+},
+
+floatingButton: {
+  position: "absolute",
+  bottom: 20,
+  right: 20,
+  width: 60,
+  height: 60,
+  borderRadius: 30,
+  backgroundColor: "#3b82f6",
+  justifyContent: "center",
+  alignItems: "center",
+  shadowColor: "#3b82f6",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.4,
+  shadowRadius: 12,
+  elevation: 8,
+  borderWidth: 2,
+  borderColor: "#2563eb",
+},
+
+floatingButtonText: {
+  color: "#fff",
+  fontSize: 24,
   fontWeight: "bold",
 },
 
+badge: {
+  position: "absolute",
+  top: -8,
+  right: -8,
+  backgroundColor: "#ef4444",
+  borderRadius: 10,
+  width: 20,
+  height: 20,
+  justifyContent: "center",
+  alignItems: "center",
+  borderWidth: 2,
+  borderColor: "#fff",
+},
+
+badgeText: {
+  color: "#fff",
+  fontSize: 12,
+  fontWeight: "bold",
+},
+
+progressBar: {
+  height: 8,
+  backgroundColor: "#e2e8f0",
+  borderRadius: 4,
+  overflow: "hidden",
+  marginVertical: 8,
+},
+
+progressFill: {
+  height: "100%",
+  backgroundColor: "#10b981",
+  borderRadius: 4,
+},
+
+chip: {
+  backgroundColor: "#f1f5f9",
+  paddingHorizontal: 12,
+  paddingVertical: 6,
+  borderRadius: 16,
+  borderWidth: 1,
+  borderColor: "#e2e8f0",
+  marginHorizontal: 4,
+  marginVertical: 2,
+},
+
+chipText: {
+  fontSize: 12,
+  fontWeight: "600",
+  color: "#374151",
+},
+
+divider: {
+  height: 1,
+  backgroundColor: "#e2e8f0",
+  marginVertical: 16,
+},
+
+sectionHeader: {
+  fontSize: 18,
+  fontWeight: "700",
+  color: "#1f2937",
+  marginBottom: 12,
+  marginTop: 20,
+  letterSpacing: 0.3,
+},
+
+iconButton: {
+  width: 44,
+  height: 44,
+  borderRadius: 22,
+  backgroundColor: "#f8fafc",
+  justifyContent: "center",
+  alignItems: "center",
+  borderWidth: 1,
+  borderColor: "#e2e8f0",
+  shadowColor: "#000",
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.1,
+  shadowRadius: 4,
+  elevation: 2,
+},
+
+iconButtonPressed: {
+  backgroundColor: "#e2e8f0",
+  transform: [{ scale: 0.95 }],
+},
+
+tooltip: {
+  position: "absolute",
+  backgroundColor: "#1f2937",
+  paddingHorizontal: 8,
+  paddingVertical: 4,
+  borderRadius: 6,
+  zIndex: 1000,
+},
+
+tooltipText: {
+  color: "#fff",
+  fontSize: 12,
+  fontWeight: "500",
+},
+
+// Responsive breakpoints (for future use)
+smallScreen: {
+  padding: 12,
+},
+
+mediumScreen: {
+  padding: 16,
+},
+
+largeScreen: {
+  padding: 20,
+},
+
+// Animation presets
+slideInFromRight: {
+  transform: [{ translateX: 0 }],
+},
+
+slideInFromLeft: {
+  transform: [{ translateX: 0 }],
+},
+
+slideInFromBottom: {
+  transform: [{ translateY: 0 }],
+},
+
+bounceIn: {
+  transform: [{ scale: 1 }],
+},
+
+rotateIn: {
+  transform: [{ rotate: "0deg" }],
+},
+
+// Utility classes
+textCenter: {
+  textAlign: "center",
+},
+
+textLeft: {
+  textAlign: "left",
+},
+
+textRight: {
+  textAlign: "right",
+},
+
+flexRow: {
+  flexDirection: "row",
+},
+
+flexColumn: {
+  flexDirection: "column",
+},
+
+justifyCenter: {
+  justifyContent: "center",
+},
+
+alignCenter: {
+  alignItems: "center",
+},
+
+spaceBetween: {
+  justifyContent: "space-between",
+},
+
+spaceAround: {
+  justifyContent: "space-around",
+},
+
+flex1: {
+  flex: 1,
+},
+
+flex2: {
+  flex: 2,
+},
+
+flex3: {
+  flex: 3,
+},
+
+// Color variants
+primary: {
+  backgroundColor: "#3b82f6",
+  borderColor: "#2563eb",
+},
+
+secondary: {
+  backgroundColor: "#6b7280",
+  borderColor: "#4b5563",
+},
+
+success: {
+  backgroundColor: "#10b981",
+  borderColor: "#059669",
+},
+
+warning: {
+  backgroundColor: "#f59e0b",
+  borderColor: "#d97706",
+},
+
+danger: {
+  backgroundColor: "#ef4444",
+  borderColor: "#dc2626",
+},
+
+info: {
+  backgroundColor: "#06b6d4",
+  borderColor: "#0891b2",
+},
 
 });
