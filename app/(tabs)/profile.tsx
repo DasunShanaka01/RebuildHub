@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, ActivityIndicator, Alert, ScrollView, SafeAreaView } from 'react-native';
 import { auth, db } from '../../FirebaseConfig';
 import { signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
@@ -50,124 +50,281 @@ const ProfileScreen: React.FC = () => {
 
   if (loading) {
     return (
-      <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color="#3498db" />
-        <Text style={styles.loadingText}>Loading profile...</Text>
-      </View>
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color="#4a90e2" />
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.header}>My Profile 👤</Text>
-
-      {userData ? (
-        <View style={styles.card}>
-          <Text style={styles.label}>Full Name:</Text>
-          <Text style={styles.value}>{userData.name}</Text>
-
-          <Text style={styles.label}>Email:</Text>
-          <Text style={styles.value}>{userData.email}</Text>
-
-          <Text style={styles.label}>Address:</Text>
-          <Text style={styles.value}>{userData.address}</Text>
-
-          <Text style={styles.label}>Phone:</Text>
-          <Text style={styles.value}>{userData.phone}</Text>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        {/* Header Section */}
+        <View style={styles.header}>
+          <View style={styles.profileIcon}>
+            <Text style={styles.profileIconText}>
+              {userData?.name ? userData.name.charAt(0).toUpperCase() : 'U'}
+            </Text>
+          </View>
+          <Text style={styles.title}>My Profile</Text>
+          <Text style={styles.subtitle}>Manage your account and settings</Text>
         </View>
-      ) : (
-        <Text style={styles.noData}>No user data found.</Text>
-      )}
 
-      {/* Buttons */}
-      <TouchableOpacity style={[styles.button, styles.logoutButton]} onPress={handleLogout}>
-        <Text style={styles.buttonText}>Logout</Text>
-      </TouchableOpacity>
+        {/* Profile Information Card */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Personal Information</Text>
+          </View>
+          
+          {userData ? (
+            <View style={styles.infoSection}>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Full Name</Text>
+                <Text style={styles.infoValue}>{userData.name || 'Not provided'}</Text>
+              </View>
+              
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Email Address</Text>
+                <Text style={styles.infoValue}>{userData.email || 'Not provided'}</Text>
+              </View>
+              
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Phone Number</Text>
+                <Text style={styles.infoValue}>{userData.phone || 'Not provided'}</Text>
+              </View>
+              
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Address</Text>
+                <Text style={styles.infoValue}>{userData.address || 'Not provided'}</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noDataContainer}>
+              <Text style={styles.noDataIcon}>📋</Text>
+              <Text style={styles.noData}>No user data found</Text>
+              <Text style={styles.noDataSubtext}>Complete your profile to see your information here</Text>
+            </View>
+          )}
+        </View>
 
-      <TouchableOpacity style={[styles.button, styles.reportButton]} onPress={() => router.replace('/reportSubmit/reportProfile')}>
-        <Text style={styles.buttonText}>View Your Reports</Text>
-      </TouchableOpacity>
 
-      <TouchableOpacity style={[styles.button, styles.ngoButton]} onPress={() => router.replace('/reportSubmit/ngoReportViwe')}>
-        <Text style={styles.buttonText}>Go to NGO Report View</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        {/* Quick Actions Card */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Quick Actions</Text>
+          </View>
+          
+          <View style={styles.actionButtons}>
+            <TouchableOpacity 
+              style={styles.actionButton} 
+              onPress={() => router.replace('/reportSubmit/reportProfile')}
+            >
+              <Text style={styles.actionButtonText}>View My Reports</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.actionButton}>
+              <Text style={styles.actionButtonText}>Edit Profile</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Logout Button */}
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Text style={styles.logoutButtonText}>Sign Out</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
 export default ProfileScreen;
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+  },
   container: {
-    flexGrow: 1,
-    backgroundColor: '#f4f6f9',
-    alignItems: 'center',
-    padding: 25,
+    flex: 1,
+    backgroundColor: '#f8f9fa',
   },
   header: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 25,
-  },
-  card: {
-    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 30,
+    paddingHorizontal: 20,
     backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 20,
-    marginBottom: 30,
+    marginBottom: 20,
     shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
     shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
+    shadowRadius: 3.84,
     elevation: 5,
   },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#7f8c8d',
-    marginTop: 10,
+  profileIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#4a90e2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: '#4a90e2',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
-  value: {
-    fontSize: 17,
-    fontWeight: '500',
+  profileIconText: {
+    color: '#fff',
+    fontSize: 32,
+    fontWeight: 'bold',
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '800',
     color: '#2c3e50',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#7f8c8d',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  card: {
+    backgroundColor: '#fff',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  cardHeader: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ecf0f1',
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2c3e50',
+  },
+  infoSection: {
+    padding: 20,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f8f9fa',
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    fontWeight: '500',
+    flex: 1,
+  },
+  infoValue: {
+    fontSize: 14,
+    color: '#2c3e50',
+    fontWeight: '600',
+    flex: 2,
+    textAlign: 'right',
+  },
+  noDataContainer: {
+    alignItems: 'center',
+    padding: 30,
+  },
+  noDataIcon: {
+    fontSize: 48,
+    marginBottom: 12,
   },
   noData: {
     color: '#e74c3c',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  noDataSubtext: {
+    color: '#7f8c8d',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  actionButtons: {
+    padding: 20,
+    gap: 12,
+  },
+  actionButton: {
+    backgroundColor: '#4a90e2',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    shadowColor: '#4a90e2',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  actionButtonText: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 20,
   },
-  button: {
-    width: '100%',
-    paddingVertical: 15,
+  logoutButton: {
+    backgroundColor: '#e74c3c',
+    marginHorizontal: 16,
+    marginVertical: 20,
+    paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
-    marginBottom: 15,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 4,
+    shadowColor: '#e74c3c',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  logoutButton: { backgroundColor: '#e74c3c' },
-  reportButton: { backgroundColor: '#3498db' },
-  ngoButton: { backgroundColor: '#27ae60' },
-  buttonText: {
+  logoutButtonText: {
     color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
   },
   loaderContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f4f6f9',
+    backgroundColor: '#f8f9fa',
   },
   loadingText: {
     marginTop: 10,
     color: '#7f8c8d',
     fontSize: 16,
+    fontWeight: '500',
   },
 });
